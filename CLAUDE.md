@@ -1,3 +1,58 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project status
+
+This repo (`PaperGraph3D`) currently contains only the unmodified Obsidian sample plugin template — `manifest.json` still declares `id: "sample-plugin"`, and `src/main.ts` / `src/settings.ts` are the stock sample code (ribbon icon, sample modal, one settings field). No project-specific functionality has been implemented yet. Treat the sections below as the scaffolding/conventions the real plugin will be built on top of, not a description of existing features.
+
+## Commands
+
+```bash
+npm install       # install dependencies
+npm run dev       # esbuild watch mode: bundles src/main.ts -> main.js on change
+npm run build     # tsc --noEmit type-check, then production esbuild bundle (minified, no sourcemap)
+npm run lint      # eslint . (eslint-plugin-obsidianmd rules)
+npm version patch|minor|major   # bumps manifest.json + package.json version, updates versions.json
+```
+
+There is no test suite/script configured in this repo.
+
+To manually try the plugin in Obsidian, copy `main.js`, `manifest.json`, and `styles.css` into `<Vault>/.obsidian/plugins/<plugin-id>/`, then reload Obsidian and enable it under Settings → Community plugins.
+
+## Architecture
+
+- This is an **Obsidian community plugin**: TypeScript in `src/` is bundled by esbuild (`esbuild.config.mjs`) into a single CJS `main.js` at the repo root, which Obsidian loads directly. `obsidian`, `electron`, and the `@codemirror`/`@lezer` packages are marked external; everything else must be bundled since only one output file is loaded.
+- `src/main.ts` is the `Plugin` subclass — lifecycle (`onload`/`onunload`), command registration, ribbon icon, status bar, settings tab wiring. Per `AGENTS.md`, keep this file to lifecycle/wiring only and delegate feature logic to new modules under `src/` (e.g. `commands/`, `ui/`, `utils/`) as functionality is added.
+- `src/settings.ts` holds the settings interface, defaults, and `PluginSettingTab` UI. Settings are persisted via `this.loadData()` / `this.saveData()` on the plugin instance.
+- Release artifacts (`main.js`, `manifest.json`, `styles.css`) must end up at the plugin root — this is what a vault's `.obsidian/plugins/<id>/` folder expects. `main.js` is gitignored and never committed; it's produced by `npm run build` and attached to GitHub releases instead.
+- `manifest.json`'s `id` is a stable identifier — do not change it after a real release. `version` follows SemVer and must stay in sync with `package.json` and `versions.json` (handled by `version-bump.mjs` via `npm version`).
+
+## CI
+
+- `.github/workflows/lint.yml`: on every push/PR to any branch, runs `npm ci`, `npm run build`, `npm run lint` across Node 20/22/24.
+- `.github/workflows/release.yml`: on tag push, builds the plugin and creates a **draft** GitHub release containing `main.js`, `manifest.json`, `styles.css` (if present), with build provenance attestation. Tags must exactly match `manifest.json`'s `version` (no `v` prefix; see `.npmrc`'s `tag-version-prefix=""`).
+
+## Conventions (see `AGENTS.md` for the full guide)
+
+`AGENTS.md` has the exhaustive Obsidian plugin guidance (manifest field rules, UX copy style, security/privacy policy, mobile-compatibility notes, troubleshooting). The load-bearing points:
+
+- Tabs, single quotes, LF line endings, UTF-8 (`.editorconfig`); TypeScript `strict: true`.
+- Use `this.registerEvent(...)`, `this.registerDomEvent(...)`, `this.registerInterval(...)` for anything needing cleanup — never attach raw listeners, so unload doesn't leak.
+- Avoid Node/Electron-only APIs unless `isDesktopOnly` is intentionally `true`; default to mobile-compatible code.
+- No network calls or telemetry without an obvious user-facing reason, explicit opt-in, and documentation — plugin should work fully offline by default.
+- Command IDs are stable once released; don't rename them.
+
+## Spec Kit
+
+This repo uses [GitHub Spec Kit](https://github.com/github/spec-kit) for spec-driven development, integrated with Claude Code via `speckit-*` skills. Installed extensions:
+
+- **git** — auto-creates a numbered feature branch (`specs/<NNN-name>`-style numbering) before `/speckit.specify` runs (non-optional hook); optional auto-commit hooks around other lifecycle steps (all disabled by default in `.specify/extensions/git/git-config.yml`).
+- **agent-context** — keeps the managed block below in sync with the active feature's plan path after `/speckit.specify` and `/speckit.plan`. Configured to manage this file (`.specify/extensions/agent-context/agent-context-config.yml` → `context_file: "CLAUDE.md"`). Don't hand-edit between the markers; it's regenerated.
+- **bug** — `/speckit.bug.assess`, `/speckit.bug.fix`, `/speckit.bug.test` for triaging bug reports against the codebase, with per-bug reports under `.specify/bugs/<slug>/`.
+
+No feature specs exist yet (`specs/` is empty).
+
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
