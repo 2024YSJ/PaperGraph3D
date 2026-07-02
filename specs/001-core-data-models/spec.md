@@ -10,6 +10,14 @@
 
 User wants subscription, paper, and settings data to have one fixed shape so every later feature can reference the same definitions. Subscriptions need a type (keyword/author/arXiv category), value, display label, check interval (one of 6/12/24/48/72 hours), last-checked time, and enabled flag. Papers need title, publication year, authors, citation count, abstract, and source identifier, with publication year required and never empty. Settings need default values for storage location, summarization enabled, and graph display options. Must establish what happens when a paper has no known publication year, and must reject check intervals outside the allowed list."
 
+## Clarifications
+
+### Session 2026-07-02
+
+- Q: What should serve as a paper's stable unique identity for deduplication, and should the source identifier be structured to encode which provider issued it? → A: The source identifier MUST be globally unique per paper and MUST structurally encode its originating provider (e.g., `arxiv:2301.12345`), guaranteeing no collision between providers. Recognizing the same underlying paper across two different providers is out of scope for this specification.
+- Q: Is the Subscription/Paper/Settings shape defined here a closed, fixed set of attributes, or an open baseline that later features may extend? → A: Open/extensible baseline — the attributes defined here are a required minimum; later features may add further attributes to these same entities (e.g., a read/unread flag, citation-relationship data) as long as they don't remove or redefine what's fixed here.
+- Q: Should the default storage location resolve to a concrete, non-empty, usable path automatically, or remain empty/unset until a person configures it? → A: Concrete non-empty default — settings data always resolves to a real, usable folder path (e.g., a `PaperGraph3D/` folder within the vault) the moment the plugin loads, with no required setup before other features can write data.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Reference the subscription data shape (Priority: P1)
@@ -81,15 +89,19 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 - **FR-008**: The paper data definition MUST include title, publication year, a list of authors, citation count, abstract, and source identifier attributes.
 - **FR-009**: Publication year MUST be treated as a required attribute of paper data that can never be empty for the paper to be considered valid.
 - **FR-010**: A collected paper whose publication year is unknown MUST be held back from becoming a valid paper record, rather than being discarded outright, until a publication year becomes known.
-- **FR-011**: The plugin settings data definition MUST include a default value for where collected data is stored.
+- **FR-011**: The plugin settings data definition MUST include a default value for where collected data is stored, and that default MUST be a concrete, non-empty, immediately usable location — not an empty or unset value — so the plugin is usable right after installation with no required setup.
 - **FR-012**: The plugin settings data definition MUST include a default value for whether the summarization feature is enabled.
 - **FR-013**: The plugin settings data definition MUST include default values for graph display options.
 - **FR-014**: Subscription, paper, and settings data that is missing any of its respective required attributes MUST be identifiable as invalid.
+- **FR-015**: A paper's source identifier MUST be globally unique per paper and MUST structurally encode which external provider issued it (e.g., a provider-prefixed value such as `arxiv:2301.12345`), so that identifiers from different providers can never collide. This specification does not require recognizing the same underlying paper when it is issued different identifiers by different providers.
+- **FR-016**: Later features MAY add further attributes to the Subscription, Paper, or Settings entities defined here (for example, a read/unread flag or citation-relationship data) without needing those attributes to be defined by this specification, provided no attribute fixed here is removed or redefined.
 
 ### Key Entities
 
+*The attributes listed below are each entity's required minimum. Later features may extend these entities with additional attributes as needed (see FR-016), without requiring changes to this specification.*
+
 - **Subscription**: A tracked search criterion the plugin periodically checks for new papers. Attributes: type (keyword / author / arXiv category), value, display label, check interval (6/12/24/48/72 hours only), last-checked time, enabled flag.
-- **Paper**: A single academic paper referenced by the plugin. Attributes: title, publication year (required, never empty), list of authors, citation count, abstract, source identifier. A paper without a known publication year is held back rather than becoming a valid record.
+- **Paper**: A single academic paper referenced by the plugin. Attributes: title, publication year (required, never empty), list of authors, citation count, abstract, source identifier (globally unique per paper, structurally encodes its originating provider, e.g. `arxiv:2301.12345`; serves as this paper's deduplication key). A paper without a known publication year is held back rather than becoming a valid record.
 - **Plugin Settings**: Plugin-wide configuration, always resolving to a complete set of defaults. Attributes: default storage location, default summarization-enabled value, default graph display options.
 
 ## Success Criteria *(mandatory)*
@@ -100,11 +112,12 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 - **SC-002**: 100% of subscription records missing any of its six defined attributes, or using a check interval outside the five allowed options, are identified as invalid.
 - **SC-003**: 100% of paper records missing a publication year, or missing any of its six defined attributes, are identified as invalid.
 - **SC-004**: 100% of newly loaded plugin settings resolve to a complete set of default values (storage location, summarization enabled, graph display options) with no missing group, even before a person changes anything.
+- **SC-005**: 100% of paper records can be deduplicated using their source identifier alone, with zero possibility of two different papers issued by different providers sharing an identifier.
 
 ## Assumptions
 
 - The default check interval for a newly created subscription (when none is explicitly chosen) is 24 hours, the middle option of the five allowed values.
-- The default storage location is a dedicated folder within the Obsidian vault; this specification only requires that a default value exists, not its exact path, since storage itself is out of scope here.
+- The default storage location is a dedicated, concrete, non-empty folder path within the Obsidian vault, resolved automatically with no setup required; this specification does not fix the exact folder name/path, since storage itself is out of scope here.
 - Summarization is disabled by default, consistent with the project's existing commitment that features making outside calls stay off until a person opts in.
 - Default graph display options are placeholder values (e.g., a standard layout and a neutral, non-implementation-specific display mode) that the future graph-display feature may refine; this specification only requires that some default exists and that the settings shape has a place for it.
 - A paper's source identifier (e.g., where/how it was found) is assumed to always be available at the point a paper is collected, since collection itself is out of scope for this specification.
