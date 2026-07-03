@@ -35,6 +35,7 @@ All three entities are an **open baseline** (FR-016, Clarification 2026-07-02): 
 | `citationCount` | `number` | Yes (may be `0`) | FR-008. `0` is how downstream feature `260702-004` detects "nobody has cited yet." |
 | `abstract` | `string` | Yes (may be empty string) | FR-008. |
 | `sourceId` | `PaperSourceId` (`` `${SourceProvider}:${string}` ``) | Yes | FR-008/FR-015. Globally unique per paper; encodes the originating provider (`'arxiv' \| 'semanticScholar'`). This is the paper's deduplication key. |
+| `references` | `PaperSourceId[]` | Yes (field present; may be empty `[]`) | **FR-016 additive extension**, not an original FR-008 field. Outbound citations — the sourceIds of the papers this one *cites*. Fixed here so features `260702-002`/`003`/`006` share one definition; see note below. |
 
 **Two related shapes**:
 - `PaperCandidate`: everything above except `publicationYear`, which is `number | undefined` — represents a paper as collected, before the "hold back" rule is applied.
@@ -45,6 +46,8 @@ All three entities are an **open baseline** (FR-016, Clarification 2026-07-02): 
 **Validation**: `isValidPaper(data: unknown): data is Paper` — true only when every field above is present and `publicationYear` is a `number` (SC-003).
 
 **Deduplication**: `isPaperSourceId(value: string): value is PaperSourceId` and equality on `sourceId` is the full extent of this spec's deduplication guarantee (SC-005). Recognizing the same underlying paper issued different IDs by two different providers is explicitly out of scope (Clarification 2026-07-02).
+
+**Citation relationships** (`references`, added 2026-07-03 as an FR-016 extension): stored **outbound-only** — each paper records the sourceIds of the papers it cites. The graph-conversion feature (`260702-006`) builds directional edges `A→B` from `A.references`, and derives `citedBy` by inverting the edge set at build time; a bidirectional `citedBy` field is deliberately **not** stored, to avoid having to keep two note files in sync per relationship. `isValidPaper` requires `references` to be an array of valid `PaperSourceId`s (empty is valid). Note that arXiv exposes no citation graph — citation data originates only from Semantic Scholar — and a `references` entry pointing to a paper absent from the vault is a dangling edge for `260702-006` to skip, not an error here. Populating `references` belongs to the collection/note-saving features; this spec fixes only its shape.
 
 ## Plugin Settings
 

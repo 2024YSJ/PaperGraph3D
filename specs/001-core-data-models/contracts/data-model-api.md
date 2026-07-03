@@ -48,6 +48,7 @@ export interface PaperCandidate {
   citationCount: number;
   abstract: string;
   sourceId: PaperSourceId;
+  references: PaperSourceId[]; // FR-016 extension; outbound citations (see below)
 }
 
 export interface Paper {
@@ -57,6 +58,7 @@ export interface Paper {
   citationCount: number;
   abstract: string;
   sourceId: PaperSourceId;
+  references: PaperSourceId[]; // FR-016 extension; outbound citations (see below)
 }
 
 export function isPaperSourceId(value: string): value is PaperSourceId;
@@ -68,7 +70,8 @@ export function isValidPaper(data: unknown): data is Paper;
 
 **Behavior guarantees**:
 - `toPaper` returns `undefined` if and only if `candidate.publicationYear` is `undefined` (the "hold back" rule) — it never throws, and never returns a `Paper` with a missing year.
-- `isValidPaper` returns `false` for any input missing a field, with the wrong type for a field, or with a non-numeric/missing `publicationYear` — never throws.
+- `isValidPaper` returns `false` for any input missing a field, with the wrong type for a field, or with a non-numeric/missing `publicationYear` — never throws. `references` must be an array in which every element is a valid `PaperSourceId` (an empty array is valid).
+- `references` is an **FR-016 additive extension** to the 001 baseline, fixed here so the downstream collection/note-saving/graph-conversion features (`260702-002`/`003`/`006`) share one definition. It holds the sourceIds of the papers this paper *cites* (outbound only); `citedBy` is never stored — the graph feature derives it by inverting `references`. Populating `references` is those later features' responsibility; this contract only fixes its shape and validation.
 - Two `Paper`/`PaperCandidate` values with equal `sourceId` MUST be treated as the same paper; the inverse (different `sourceId` ⇒ different paper) is guaranteed only within a single provider, not across providers.
 
 ## `src/models/settings.ts`

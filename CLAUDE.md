@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repo (`PaperGraph3D`) currently contains only the unmodified Obsidian sample plugin template — `manifest.json` still declares `id: "sample-plugin"`, and `src/main.ts` / `src/settings.ts` are the stock sample code (ribbon icon, sample modal, one settings field). No project-specific functionality has been implemented yet. Treat the sections below as the scaffolding/conventions the real plugin will be built on top of, not a description of existing features.
+This repo (`PaperGraph3D`) is early in build-out. The plugin entry points are still the unmodified Obsidian sample template — `manifest.json` still declares `id: "sample-plugin"`, and `src/main.ts` / `src/settings.ts` are the stock sample code (ribbon icon, sample modal, one settings field), not yet wired to any real feature. The first feature's output does exist: `src/models/{subscription,paper,settings}.ts` hold the core data structures (types plus runtime validators) from the `001-core-data-models` spec, but nothing imports them yet. Treat the sections below as the scaffolding/conventions the real plugin is being built on top of.
 
 ## Commands
 
@@ -53,7 +53,7 @@ This repo uses [GitHub Spec Kit](https://github.com/github/spec-kit) for spec-dr
 
 `.specify/memory/constitution.md` is a ratified project constitution (v1.0.0), not the bare template — it defines six binding principles (Obsidian Platform Compliance, Lifecycle-Safe Resource Management, Manifest Identity Stability, Transparent Use of Sensitive APIs, Bilingual UX/English-only code, Open-Source Code Quality & Extensibility) plus Additional Constraints and a Development Workflow section. `/speckit.plan`'s Constitution Check gate reads this file directly; treat it as binding and only amend it through its own Governance rules (version bump + Sync Impact Report), not by hand-editing content in place.
 
-No feature specs exist yet (`specs/` is empty).
+One feature spec exists so far: `specs/001-core-data-models/` (core data structures — spec, plan, tasks, and design artifacts, all implemented under `src/models/`).
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
