@@ -165,5 +165,6 @@ With multiple developers: after T001, one person takes US1 (`subscription.ts`), 
 - [Story] labels map every implementation task back to its `spec.md` user story for traceability.
 - No test tasks are included — see the "Tests" note at the top of this file.
 - Every field/rule/function traces to a specific FR-/SC- number from `spec.md`, with one exception: FR-016 (open/extensible baseline) has no dedicated task since it's satisfied by design — keeping each entity's shape additive rather than closed. Consult `data-model.md` and `contracts/data-model-api.md` for the exact types and behavior guarantees before implementing.
+- **Post-completion FR-016 extension (2026-07-03)**: after T004–T007 shipped, `Paper`/`PaperCandidate` gained a `references: PaperSourceId[]` field (outbound citations), and `isValidPaper` now checks it — so the validator covers seven fields, not the six T007 originally described. This was a deliberate anticipatory extension (the shared citation-edge dependency for features `260702-002`/`003`/`006`), added under FR-016 without a new task; see `data-model.md` § Paper and `contracts/data-model-api.md` for its shape and validation.
 - Commit after each task or logical group (per this repo's usual workflow).
 - Stop at any checkpoint to validate a story independently before moving on.

@@ -55,6 +55,7 @@ const withYear = toPaper({
   title: 'Attention Is All You Need', publicationYear: 2017,
   authors: ['Vaswani'], citationCount: 100000, abstract: '...',
   sourceId: 'arxiv:1706.03762',
+  references: ['arxiv:1409.0473'], // outbound citations (FR-016 field); empty [] is also valid
 });
 check('paper with known year becomes valid Paper', withYear !== undefined && isValidPaper(withYear));
 
@@ -62,11 +63,18 @@ const withoutYear = toPaper({
   title: 'Some Preprint', publicationYear: undefined,
   authors: [], citationCount: 0, abstract: '',
   sourceId: 'arxiv:9999.99999',
+  references: [],
 });
 check('paper with unknown year is held back (undefined), not created', withoutYear === undefined);
 
 check('sourceId encodes provider', isPaperSourceId('arxiv:1706.03762') && isPaperSourceId('semanticScholar:abc123'));
 check('malformed sourceId rejected', !isPaperSourceId('1706.03762'));
+
+// references must be an array of valid sourceIds (empty allowed); a bad element invalidates the paper
+check('paper with a non-sourceId reference is rejected', !isValidPaper({
+  title: 't', publicationYear: 2017, authors: [], citationCount: 0, abstract: '',
+  sourceId: 'arxiv:1', references: ['not-a-sourceid'],
+}));
 ```
 
 ### Plugin Settings (User Story 3)
