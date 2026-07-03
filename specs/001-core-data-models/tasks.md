@@ -51,7 +51,7 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 ### Implementation for User Story 1
 
-- [ ] T002 [P] [US1] Define `SubscriptionType`, `CheckIntervalHours`, `ALLOWED_CHECK_INTERVALS_HOURS`, `DEFAULT_CHECK_INTERVAL_HOURS`, and the `Subscription` interface (per `contracts/data-model-api.md` § subscription.ts and `data-model.md` § Subscription) in `src/models/subscription.ts`
+- [ ] T002 [P] [US1] Define `SubscriptionType`, `CheckIntervalHours`, `ALLOWED_CHECK_INTERVALS_HOURS`, `DEFAULT_CHECK_INTERVAL_HOURS`, and the `Subscription` interface (per `contracts/data-model-api.md` § subscription.ts and `data-model.md` § Subscription) in `src/models/subscription.ts` (FR-001, FR-002, FR-003, FR-004, FR-006, FR-007)
 - [ ] T003 [US1] Implement `isValidSubscription(data: unknown): data is Subscription` and `assignCheckInterval(current, requested): CheckIntervalHours` in `src/models/subscription.ts` (FR-001–FR-007; depends on T002)
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — `src/models/subscription.ts` type-checks on its own and satisfies SC-002.
@@ -84,7 +84,7 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 ### Implementation for User Story 3
 
 - [ ] T008 [P] [US3] Define `GraphDisplayOptions` and `PluginSettings` (per `contracts/data-model-api.md` § settings.ts and `data-model.md` § Plugin Settings) in `src/models/settings.ts` — a new file, distinct from the existing stock `src/settings.ts` (FR-013)
-- [ ] T009 [US3] Implement `DEFAULT_PLUGIN_SETTINGS` with a concrete non-empty `storageLocation` (e.g. `'PaperGraph3D'`), `summarizationEnabled: false`, and placeholder `graphDisplayOptions` in `src/models/settings.ts` (FR-011, FR-012; depends on T008)
+- [ ] T009 [US3] Implement `DEFAULT_PLUGIN_SETTINGS` with a concrete non-empty `storageLocation` (e.g. `'PaperGraph3D'`), `summarizationEnabled: false`, and placeholder `graphDisplayOptions` in `src/models/settings.ts` (FR-011, FR-012, FR-013; depends on T008)
 - [ ] T010 [US3] Implement `isValidPluginSettings(data: unknown): data is PluginSettings` in `src/models/settings.ts` (FR-014, SC-004; depends on T008)
 
 **Checkpoint**: All three user stories are independently functional — `src/models/settings.ts` type-checks on its own and satisfies SC-004.
@@ -162,6 +162,6 @@ With multiple developers: after T001, one person takes US1 (`subscription.ts`), 
 - [P] tasks touch different files with no dependency on an incomplete task.
 - [Story] labels map every implementation task back to its `spec.md` user story for traceability.
 - No test tasks are included — see the "Tests" note at the top of this file.
-- Every field/rule/function traces to a specific FR-/SC- number from `spec.md`; consult `data-model.md` and `contracts/data-model-api.md` for the exact types and behavior guarantees before implementing.
+- Every field/rule/function traces to a specific FR-/SC- number from `spec.md`, with one exception: FR-016 (open/extensible baseline) has no dedicated task since it's satisfied by design — keeping each entity's shape additive rather than closed. Consult `data-model.md` and `contracts/data-model-api.md` for the exact types and behavior guarantees before implementing.
 - Commit after each task or logical group (per this repo's usual workflow).
 - Stop at any checkpoint to validate a story independently before moving on.
