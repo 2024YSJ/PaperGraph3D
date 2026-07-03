@@ -1,92 +1,34 @@
-# Obsidian Sample Plugin
+# PaperGraph3D
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+> ⚠️ **개발 중 (Work in Progress)** — 이 프로젝트는 초기 개발 단계입니다.
+> 아직 사용 가능한 릴리스가 없으며, 구조·API·데이터 모델이 예고 없이 변경될 수 있습니다.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+An Obsidian community plugin (in early development).
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+## 현재 상태 (Status)
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+이 저장소는 아직 뼈대를 잡아가는 단계입니다.
 
-## First time developing plugins?
+- 플러그인 진입점(`src/main.ts`, `src/settings.ts`)과 `manifest.json`은 아직 Obsidian sample plugin 템플릿 상태입니다.
+- 첫 기능의 산출물인 코어 데이터 모델은 `src/models/`(`subscription`, `paper`, `settings`)에 구현되어 있습니다 (`specs/001-core-data-models`).
 
-Quick starting guide for new plugin devs:
+기능이 갖춰지는 대로 이 README를 업데이트할 예정입니다.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## 개발 (Development)
 
-## Releasing new releases
-
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
-
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+```bash
+npm install     # 의존성 설치
+npm run dev     # esbuild watch: src/main.ts -> main.js
+npm run build   # 타입 체크 후 프로덕션 번들
+npm run lint    # eslint
 ```
 
-If you have multiple URLs, you can also do:
+Obsidian에서 직접 시험하려면 `main.js`, `manifest.json`, `styles.css`를
+`<Vault>/.obsidian/plugins/<plugin-id>/` 에 복사한 뒤 Obsidian을 리로드하고
+설정 → 커뮤니티 플러그인에서 활성화하세요.
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
-```
+프로젝트 규약과 아키텍처는 `CLAUDE.md` 와 `AGENTS.md` 를 참고하세요.
 
-## API Documentation
+## License
 
-See https://docs.obsidian.md
+[MIT](LICENSE) © AKZIL
