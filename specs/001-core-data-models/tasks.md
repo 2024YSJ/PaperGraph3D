@@ -29,7 +29,7 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 **Purpose**: Confirm a clean baseline before adding new files.
 
-- [ ] T001 Create the `src/models/` directory and confirm `npm run build` and `npm run lint` both still pass on the unmodified baseline, so any later failure is known to come from this feature's new code
+- [X] T001 Create the `src/models/` directory and confirm `npm run build` and `npm run lint` both still pass on the unmodified baseline, so any later failure is known to come from this feature's new code
 
 **Checkpoint**: Baseline confirmed clean — safe to start adding entity modules.
 
@@ -51,8 +51,8 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 ### Implementation for User Story 1
 
-- [ ] T002 [P] [US1] Define `SubscriptionType`, `CheckIntervalHours`, `ALLOWED_CHECK_INTERVALS_HOURS`, `DEFAULT_CHECK_INTERVAL_HOURS`, and the `Subscription` interface (per `contracts/data-model-api.md` § subscription.ts and `data-model.md` § Subscription) in `src/models/subscription.ts` (FR-001, FR-002, FR-003, FR-004, FR-006, FR-007)
-- [ ] T003 [US1] Implement `isValidSubscription(data: unknown): data is Subscription` and `assignCheckInterval(current, requested): CheckIntervalHours` in `src/models/subscription.ts` (FR-001–FR-007; depends on T002)
+- [X] T002 [P] [US1] Define `SubscriptionType`, `CheckIntervalHours`, `ALLOWED_CHECK_INTERVALS_HOURS`, `DEFAULT_CHECK_INTERVAL_HOURS`, and the `Subscription` interface (per `contracts/data-model-api.md` § subscription.ts and `data-model.md` § Subscription) in `src/models/subscription.ts` (FR-001, FR-002, FR-003, FR-004, FR-006, FR-007)
+- [X] T003 [US1] Implement `isValidSubscription(data: unknown): data is Subscription` and `assignCheckInterval(current, requested): CheckIntervalHours` in `src/models/subscription.ts` (FR-001–FR-007; depends on T002)
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — `src/models/subscription.ts` type-checks on its own and satisfies SC-002.
 
@@ -66,10 +66,10 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 ### Implementation for User Story 2
 
-- [ ] T004 [P] [US2] Define `SourceProvider`, `PaperSourceId`, `PaperCandidate`, and `Paper` (per `contracts/data-model-api.md` § paper.ts and `data-model.md` § Paper) in `src/models/paper.ts` (FR-008)
-- [ ] T005 [US2] Implement `isPaperSourceId(value: string): value is PaperSourceId` in `src/models/paper.ts` (FR-015; depends on T004)
-- [ ] T006 [US2] Implement `toPaper(candidate: PaperCandidate): Paper | undefined`, returning `undefined` exactly when `publicationYear` is missing, in `src/models/paper.ts` (FR-009, FR-010; depends on T004)
-- [ ] T007 [US2] Implement `isValidPaper(data: unknown): data is Paper` — checking all six fields including `sourceId` via `isPaperSourceId()` — in `src/models/paper.ts` (FR-014, SC-003, SC-005; depends on T004, T005)
+- [X] T004 [P] [US2] Define `SourceProvider`, `PaperSourceId`, `PaperCandidate`, and `Paper` (per `contracts/data-model-api.md` § paper.ts and `data-model.md` § Paper) in `src/models/paper.ts` (FR-008)
+- [X] T005 [US2] Implement `isPaperSourceId(value: string): value is PaperSourceId` in `src/models/paper.ts` (FR-015; depends on T004)
+- [X] T006 [US2] Implement `toPaper(candidate: PaperCandidate): Paper | undefined`, returning `undefined` exactly when `publicationYear` is missing, in `src/models/paper.ts` (FR-009, FR-010; depends on T004)
+- [X] T007 [US2] Implement `isValidPaper(data: unknown): data is Paper` — checking all six fields including `sourceId` via `isPaperSourceId()` — in `src/models/paper.ts` (FR-014, SC-003, SC-005; depends on T004, T005)
 
 **Checkpoint**: User Stories 1 AND 2 both work independently — `src/models/paper.ts` type-checks on its own and satisfies SC-003/SC-005.
 
@@ -83,9 +83,9 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 ### Implementation for User Story 3
 
-- [ ] T008 [P] [US3] Define `GraphDisplayOptions` and `PluginSettings` (per `contracts/data-model-api.md` § settings.ts and `data-model.md` § Plugin Settings) in `src/models/settings.ts` — a new file, distinct from the existing stock `src/settings.ts` (FR-013)
-- [ ] T009 [US3] Implement `DEFAULT_PLUGIN_SETTINGS` with a concrete non-empty `storageLocation` (e.g. `'PaperGraph3D'`), `summarizationEnabled: false`, and placeholder `graphDisplayOptions` in `src/models/settings.ts` (FR-011, FR-012, FR-013; depends on T008)
-- [ ] T010 [US3] Implement `isValidPluginSettings(data: unknown): data is PluginSettings` in `src/models/settings.ts` (FR-014, SC-004; depends on T008)
+- [X] T008 [P] [US3] Define `GraphDisplayOptions` and `PluginSettings` (per `contracts/data-model-api.md` § settings.ts and `data-model.md` § Plugin Settings) in `src/models/settings.ts` — a new file, distinct from the existing stock `src/settings.ts` (FR-013)
+- [X] T009 [US3] Implement `DEFAULT_PLUGIN_SETTINGS` with a concrete non-empty `storageLocation` (e.g. `'PaperGraph3D'`), `summarizationEnabled: false`, and placeholder `graphDisplayOptions` in `src/models/settings.ts` (FR-011, FR-012, FR-013; depends on T008)
+- [X] T010 [US3] Implement `isValidPluginSettings(data: unknown): data is PluginSettings` in `src/models/settings.ts` (FR-014, SC-004; depends on T008)
 
 **Checkpoint**: All three user stories are independently functional — `src/models/settings.ts` type-checks on its own and satisfies SC-004.
 
@@ -95,9 +95,11 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 **Purpose**: Repo-wide gates and the manual validation pass, across all three entities.
 
-- [ ] T011 [P] Run `npm run build` (`tsc --noEmit` + esbuild) and confirm it passes with all three new `src/models/*.ts` files present (constitution Development Workflow gate)
-- [ ] T012 [P] Run `npm run lint` and confirm it passes with all three new files present (constitution Development Workflow gate)
-- [ ] T013 Execute `quickstart.md` end-to-end: create `scratch/verify-models.ts`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS`, then `rm -rf scratch/` (depends on T003, T007, T010)
+- [X] T011 [P] Run `npm run build` (`tsc --noEmit` + esbuild) and confirm it passes with all three new `src/models/*.ts` files present (constitution Development Workflow gate)
+- [X] T012 [P] Run `npm run lint` and confirm it passes with all three new files present (constitution Development Workflow gate)
+- [X] T013 Execute `quickstart.md` end-to-end: create `scratch/verify-models.ts`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS`, then `rm -rf scratch/` (depends on T003, T007, T010)
+
+**T011/T012 result**: `npm run build` passes cleanly. `npm run lint` exits with the same 6 pre-existing errors + 1 warning as the unmodified baseline (T001), all confined to the stock `src/main.ts`/`src/settings.ts` sample code this feature is scoped not to touch — confirmed identical before/after, so `src/models/*.ts` introduces zero new lint errors. Full repo-wide `npm run lint` will only turn fully green once a later feature renames/rewrites the sample plugin files.
 
 ---
 

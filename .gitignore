@@ -23,3 +23,6 @@ data.json
 
 # spec-kit extension catalog cache (regenerated locally)
 .specify/extensions/.cache/
+
+# ad hoc manual verification scripts (see specs/*/quickstart.md)
+scratch/
