@@ -33,6 +33,13 @@ All `[NEEDS CLARIFICATION]` items from the spec were already resolved during `/s
 - *Make `publicationYear` optional on `Paper` itself and check it everywhere it's used*: rejected — reintroduces the missing-year check into every downstream feature, which is exactly what a shared foundational type should prevent (spec `SC-001`).
 - *Throw an exception for a missing year*: rejected — "held back" implies the data is retained for a possible future retry, not an error condition to propagate/crash on; a plain `undefined` return is the natural "not yet valid" signal for a pure function.
 
+**Scope of the "hold back" fallback** (clarified spec Session 2026-07-04): `PaperCandidate`/`toPaper()` is *not* a retry mechanism for a failed API call — those are two different failure modes at two different layers:
+
+1. *API call fails* (network error, timeout, rate limit, 5xx): no/partial response. The correct response is to re-call. This is the collection feature's (`260702-002`) concern, not this feature's — `PaperCandidate` plays no role.
+2. *API call succeeds but the record has no publication year* (e.g. arXiv preprints or Semantic Scholar records with a null year): re-calling the same provider is pointless — it deterministically returns the same missing year. This is the only case `toPaper()` addresses. The year is expected to arrive later from a *different* path (a preprint that is subsequently published, a second provider that has the year, or a later metadata-enrichment pass), which is why the already-fetched title/authors/abstract/citations are kept rather than discarded and re-fetched.
+
+The held-back candidate's lifetime is scoped to a single collection pass **in memory** — `toPaper()` is a pure function that persists nothing, and this feature does not add any pending/retry store. Re-evaluation is delegated to the next scheduled subscription check, which re-fetches and re-runs the gate. Whether a held-back candidate is ever persisted or queued for retry across sessions is explicitly out of scope for 001 and left to the collection feature. This is why the fallback is modeled as a *type* (the pre-validation `PaperCandidate` shape) plus a *gate* (`toPaper()`), not as storage: 001 fixes only the shared shape and the single validation boundary so the eight downstream features never re-implement "is the year missing?" inconsistently (`SC-001`).
+
 ## 4. Encoding a provider-tagged, globally-unique `sourceId`
 
 **Decision**: `type SourceProvider = 'arxiv' | 'semanticScholar';` and `type PaperSourceId = \`${SourceProvider}:${string}\`;` (a TypeScript template literal type), with a runtime helper `isPaperSourceId(value: string): value is PaperSourceId` that checks for a recognized `provider:` prefix.

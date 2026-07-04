@@ -41,7 +41,7 @@ All three entities are an **open baseline** (FR-016, Clarification 2026-07-02): 
 - `PaperCandidate`: everything above except `publicationYear`, which is `number | undefined` — represents a paper as collected, before the "hold back" rule is applied.
 - `Paper`: the validated shape above, where `publicationYear` is always a `number`.
 
-**Hold-back rule** (FR-010, Edge Cases): `toPaper(candidate: PaperCandidate): Paper | undefined` returns `undefined` when `candidate.publicationYear` is missing — the paper is *not* discarded (the caller retains the `PaperCandidate` and may retry `toPaper()` later once a year is known), it simply never becomes a `Paper`.
+**Hold-back rule** (FR-010, Edge Cases): `toPaper(candidate: PaperCandidate): Paper | undefined` returns `undefined` when `candidate.publicationYear` is missing — the paper is *not* discarded (the caller retains the `PaperCandidate` and may retry `toPaper()` later once a year is known), it simply never becomes a `Paper`. This addresses only a *successful* collection whose record lacks a year (where re-calling the provider would return the same missing value), **not** a failed API call — that is re-called by the collection feature. The held-back candidate is scoped to the current in-memory collection pass; this feature persists no pending/retry store (see Clarifications, Session 2026-07-04).
 
 **Validation**: `isValidPaper(data: unknown): data is Paper` — true only when every field above is present and `publicationYear` is a `number` (SC-003).
 

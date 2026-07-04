@@ -54,6 +54,16 @@ export function isPaperSourceId(value: string): value is PaperSourceId {
 
 // A missing publicationYear means the paper is held back, not discarded: the
 // caller keeps the PaperCandidate and may call toPaper() again once a year is known.
+//
+// This is NOT a retry mechanism for a failed API call. A failed/incomplete API
+// response is the collection feature's concern (it re-calls). toPaper() only
+// handles the other case: the call SUCCEEDED but the record genuinely has no
+// year (e.g. an arXiv preprint), where re-calling the same provider would return
+// the same missing year. The year is expected to arrive later from a different
+// path (a preprint that gets published, a second provider, a metadata-enrichment
+// pass), so the already-fetched fields are kept rather than re-fetched. The
+// held-back candidate lives only in memory for the current collection pass; this
+// module persists nothing and adds no retry queue (spec Session 2026-07-04).
 export function toPaper(candidate: PaperCandidate): Paper | undefined {
 	if (candidate.publicationYear === undefined) {
 		return undefined;
