@@ -1,18 +1,14 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
-import MyPlugin from './main';
+import { App, PluginSettingTab } from 'obsidian';
+import PaperGraph3DPlugin from './main';
+import { PluginSettings, DEFAULT_PLUGIN_SETTINGS } from './models/settings';
 
-export interface MyPluginSettings {
-	mySetting: string;
-}
+export type { PluginSettings };
+export { DEFAULT_PLUGIN_SETTINGS };
 
-export const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default',
-};
+export class PaperGraph3DSettingTab extends PluginSettingTab {
+	plugin: PaperGraph3DPlugin;
 
-export class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: PaperGraph3DPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -21,18 +17,5 @@ export class SampleSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 
 		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Settings #1')
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder('Enter your secret')
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					}),
-			);
 	}
 }
