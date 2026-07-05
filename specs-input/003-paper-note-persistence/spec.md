@@ -93,6 +93,7 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 - **FR-011**: If the storage folder is missing or inaccessible, the feature MUST inform the user and MUST NOT leave a half-created or half-deleted record/note pairing.
 - **FR-012**: When a paper is removed, both its JSON record and its Markdown note MUST be deleted together.
 - **FR-013**: If a record exists without a note or a note without a record, the feature MUST reconcile on the next operation touching that paper, treating the JSON record as authoritative; a note with no record MUST be reported to the user rather than silently deleted.
+- **FR-014**: Writes to a single paper's pairing MUST be serialized: concurrent operations targeting the same paper — e.g., a collection update (002), a summarization result (004), and a manual refresh (005) — MUST NOT interleave into a partial or inconsistent state. Each completes atomically with respect to the others (or is safely ordered), so the record and note are never left disagreeing.
 
 ### Key Entities
 

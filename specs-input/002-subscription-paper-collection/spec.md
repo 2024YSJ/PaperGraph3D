@@ -20,6 +20,7 @@
 
 - Q: How does a raw provider response become a valid Paper, and what happens to citation data that a provider such as arXiv does not supply at all? → A: A response is first parsed into a `PaperCandidate` (001), which may carry an *unknown* citation count and unknown references — arXiv returns no citation data, so those stay unknown rather than being set to 0/empty. The candidate is then *promoted* to a valid `Paper` only when it has a publication year (otherwise it is held back — see FR-011). On promotion, an unknown citation count defaults to 0 and unknown references default to an empty list. Because that default collapses "unknown" into "zero", any subscription whose papers need an accurate citation count or relationships for later features (future-directions text 004, uncited-node styling 007) MUST be enriched from a citation-aware provider (Semantic Scholar) *before* promotion; a paper promoted without enrichment is stored reading "0 citations", which a later manual refresh (005) can correct.
 - Q: Why keep "unknown" separate from 0 in the candidate at all, if promotion collapses it anyway? → A: So this feature can decide *whether to enrich* before promoting. A candidate with an unknown citation count is a signal that citation data has not been fetched yet; a candidate reading 0 after enrichment is a confirmed "uncited" paper. Collapsing them only at the final promotion step keeps that decision available for as long as it is useful.
+- Q: A collected paper may need a summary (004) and must be persisted (003) — who sequences those steps, and in what order? → A: This feature owns the per-paper processing pipeline. For each collected paper it enriches (where citation accuracy is needed), then — if summarization is on — invokes 004 to generate the summary/future-directions text, then hands the finished paper to 003 for a single coordinated persist that writes the record + note (including the summary) at once, so the note appears already complete rather than being written twice. 004 and 003 own *what* each step does; this feature owns *when* they run. If summarization fails or times out, 004's abstract fallback applies and persistence still proceeds.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -102,7 +103,8 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **FR-013**: A large batch of discovered papers MUST be processed sequentially without freezing the interface.
 - **FR-014**: If a provider caps how far back a single catch-up query can reach, the system MUST inform the user that the off-period window could not be fully covered.
 - **FR-015**: Collection MUST parse each provider response into a `PaperCandidate` (001) before it becomes a valid `Paper`. Where a provider does not supply a citation count or references (e.g., arXiv), the candidate MUST represent them as *unknown* rather than as 0 or an empty list, so that "unknown" is never conflated with a confirmed zero.
-- **FR-016**: A candidate MUST be promoted to a valid `Paper` only when it has a publication year; on promotion, an unknown citation count becomes 0 and unknown references become an empty list. To store an accurate citation count and citation relationships, collection MUST enrich the candidate from a citation-aware provider (e.g., Semantic Scholar) *before* promotion. A paper promoted without enrichment is stored with a citation count of 0, correctable later by a manual refresh (005).
+- **FR-016**: A candidate MUST be promoted to a valid `Paper` only when it has a publication year; on promotion, an unknown citation count becomes 0 and unknown references become an empty list. To store an accurate citation count and citation relationships, collection MUST enrich the candidate from a citation-aware provider (e.g., Semantic Scholar) *before* promotion. A paper promoted without enrichment is stored with a citation count of 0, correctable later by a manual refresh (005). In particular, when summarization (004) or the uncited-node styling (007) will rely on citation status, enrichment MUST precede promotion so that a stored citation count of 0 means "confirmed uncited" rather than "not yet enriched".
+- **FR-017**: This feature MUST own the per-paper processing pipeline: for each collected paper it enriches (where citation accuracy is needed), then — if summarization (004) is enabled — invokes 004 to generate summary/future-directions text, then hands the finished paper to 003 for a single coordinated persist. It MUST NOT itself implement text generation (004) or file I/O (003); it only sequences them. A summarization failure MUST NOT block persistence — 004's abstract fallback applies and the paper is still saved.
 
 ### Key Entities
 
@@ -131,7 +133,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 
 ## Out of Scope
 
-- Saving collected papers as notes (JSON record + Markdown note) is owned by 003.
-- Summarizing or otherwise processing paper content is owned by 004.
+- The file writes for the record/note pairing are owned by 003; this feature sequences the pipeline and hands 003 the finished paper, but performs no file I/O itself.
+- Generating summary/future-directions text is owned by 004; this feature only invokes 004 at the right point in the pipeline (before persistence) and does not implement generation.
 - Manually refreshing an already-saved paper is owned by 005.
 - The plugin lifecycle that decides when "load" happens is owned by 008.

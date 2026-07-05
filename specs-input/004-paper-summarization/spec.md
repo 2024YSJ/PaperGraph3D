@@ -70,7 +70,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 - If credentials are entered incorrectly, the user is informed rather than left with silent failures.
 - If the generated summary is too short or empty, it falls back to the original abstract.
 - If the feature is turned off while a generation is in flight, the in-flight result is discarded and the note is completed from the abstract; no other feature stops working because this one is off.
-- Whether a paper is "uncited" is read from its canonical record's citation data; if that data is unavailable, the paper is treated as not qualifying for future-directions text (summary only, or abstract fallback).
+- Whether a paper is "uncited" is read from its canonical record's citation count (0 = uncited). Because collection (002) collapses an un-enriched paper's unknown citation count to 0 on promotion, 002 enriches before promotion when this feature is on (see 002 FR-016), so a 0 seen here means "confirmed uncited". If citation data is genuinely unavailable, the paper is treated as not qualifying for future-directions text (summary only).
 
 ## Requirements *(mandatory)*
 
@@ -89,7 +89,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 ### Key Entities
 
 - **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 003 (the logical Paper shape is 001); this feature adds summary and (conditionally) future-directions fields to the managed content via 003's synchronized pairing.
-- **Summarization Settings**: The on/off flag (from 001), the chosen provider, and credentials. Credentials are sensitive and handled per the project's transparent-use policy.
+- **Summarization Settings**: The on/off flag (from 001) plus the chosen provider and credentials, which are extension fields (001 FR-016) defined by this feature and surfaced in the summarization section of the settings screen (008). Credentials are sensitive and handled per the project's transparent-use policy.
 
 ## Success Criteria *(mandatory)*
 
@@ -102,8 +102,8 @@ As a user, I want to choose which provider generates summaries and enter the req
 
 ## Assumptions
 
-- Citation status ("uncited") is derived from the paper's canonical record, populated by collection (002) or refresh (005).
-- The summarization provider and its API are external; this feature is the only place summarization calls are made, analogous to how 002 is the only place collection calls are made.
+- Citation status ("uncited" = citation count 0) is derived from the paper's canonical record, populated by collection (002) or refresh (005). Its reliability depends on 002 enriching the paper before promotion; per 002 FR-016, when this feature is on, enrichment precedes promotion so a 0 is a confirmed count, not an un-enriched placeholder.
+- This feature does not self-trigger: the collection pipeline (002) invokes it (when enabled) *before* a paper is persisted, and its generated text is handed to 003 as part of a single persist. It is the only place summarization calls are made, analogous to how 002 is the only place collection calls are made.
 
 ## Out of Scope
 

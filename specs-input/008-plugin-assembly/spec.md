@@ -77,7 +77,7 @@ As a user, I want any background work (like periodic subscription checks) to sto
 
 - **FR-001**: The user MUST be able to open the graph view via an icon or a command.
 - **FR-002**: The settings screen MUST be organized into four sections: subscriptions, storage location, summarization, and graph display options.
-- **FR-003**: When the plugin is turned on, every feature MUST be initialized in the correct dependency order, and the collection feature's catch-up pass (for the off-period window) MUST be triggered as part of load.
+- **FR-003**: When the plugin is turned on, every feature MUST be initialized in the correct dependency order, and the collection feature's catch-up pass (for the off-period window) MUST be triggered as part of load. The catch-up pass MUST be triggered only after the features its per-paper pipeline depends on — persistence (003) and, when enabled, summarization (004) — are initialized.
 - **FR-004**: When the plugin is turned off, all automatically running work (such as periodic subscription checks and scheduled timers) MUST be fully cleaned up so nothing runs after unload.
 - **FR-005**: This feature MUST contain no new decision-making logic of its own; it only connects, initializes, and cleans up existing features and exposes their entry points.
 - **FR-006**: Changes made in any of the four settings sections MUST be reflected in the corresponding feature's actual behavior.
@@ -103,9 +103,11 @@ As a user, I want any background work (like periodic subscription checks) to sto
 
 ## Assumptions
 
-- The correct initialization order follows the feature dependency chain (001 → settings → 003 → 002 → 004 → 006 → 007), with 005 available on demand; assembly encodes this order.
+- The correct initialization order follows the feature dependency chain: 001 → settings → 003 → 004 → 002 → 006 → 007, with 005 available on demand. Because 002 owns the per-paper pipeline that invokes 004 (summarize) and 003 (persist), both 003 and 004 MUST be initialized before 002's catch-up pass is triggered; assembly encodes this order.
 - Scheduled work uses the platform's registration mechanisms that auto-clean on unload, satisfying the clean-shutdown requirement and the "no collection while off" rule together.
 - The default storage location and other defaults come from 001; this feature does not redefine them.
+- Each settings section renders fields owned by the corresponding feature — including the summarization provider and credentials, which are 004's extension fields (001 FR-016). This feature only surfaces them; their meaning and validation belong to the owning feature.
+- User-facing notifications use the platform's standard notice mechanism; each feature owns the wording and timing of its own messages (002 provider failures, 003 folder access, 004 credentials, 005 refresh outcome, 007 empty search). This feature does not centralize them, consistent with holding no product logic of its own.
 
 ## Out of Scope
 

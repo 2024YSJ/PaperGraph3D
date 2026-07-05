@@ -133,6 +133,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 
 - Graph data (nodes + connections) is supplied by 006; this feature does not read stored files itself.
 - Read/unread state is stored as an extension field on the paper record (001 FR-016) and kept consistent across the JSON/Markdown pairing by 003.
+- The uncited visual distinction reads the record's citation count (0 = uncited). Its accuracy depends on collection (002) having enriched the paper's citation data before promotion (002 FR-016); an un-enriched paper reads 0 and is shown as uncited until a manual refresh (005) updates it.
 - The 3D rendering technology is an implementation choice constrained by the project's mobile-compatibility and platform-compliance rules; this spec fixes behavior, not the rendering library.
 
 ## Out of Scope
