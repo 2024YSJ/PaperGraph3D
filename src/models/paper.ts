@@ -12,16 +12,26 @@ export interface PaperCandidate {
 	title: string;
 	publicationYear: number | undefined;
 	authors: string[];
-	citationCount: number;
+	// `undefined` means "not known yet" — deliberately distinct from 0 ("confirmed
+	// zero citations"). arXiv returns no citation data at all, so an arXiv-only
+	// candidate leaves this undefined until a citation-aware provider (e.g.
+	// Semantic Scholar) fills it. Keeping unknown separate from 0 is what lets
+	// downstream features tell an *uncited* paper (0) from an *un-enriched* one
+	// (undefined) — e.g. future-directions text (260702-004) and uncited-node
+	// styling (260702-007). toPaper() defaults it to 0 at promotion.
+	citationCount: number | undefined;
 	abstract: string;
 	sourceId: PaperSourceId;
-	// Outbound citations: sourceIds of the papers THIS paper cites. Added as an
-	// FR-016 extension of the 001 baseline (the graph-conversion feature 260702-006
-	// builds directional edges A->B from A.references; citedBy is derived by
-	// inverting these, never stored). Populating it is the collection/note-saving
-	// features' job (260702-002/003); the shape is fixed here so they share one
-	// definition. May be an empty array when no citation data is available.
-	references: PaperSourceId[];
+	// Outbound citations: sourceIds of the papers THIS paper cites. `undefined`
+	// means "reference data not fetched yet"; an empty array means "fetched, and
+	// this paper cites nothing" — the same unknown-vs-empty distinction as
+	// citationCount. Added as an FR-016 extension of the 001 baseline (the
+	// graph-conversion feature 260702-006 builds directional edges A->B from
+	// A.references; citedBy is derived by inverting these, never stored).
+	// Populating it is the collection/note-saving features' job (260702-002/003);
+	// the shape is fixed here so they share one definition. toPaper() defaults it
+	// to [] at promotion.
+	references: PaperSourceId[] | undefined;
 }
 
 export interface Paper {
@@ -52,14 +62,41 @@ export function isPaperSourceId(value: string): value is PaperSourceId {
 	return (SOURCE_PROVIDERS as readonly string[]).includes(provider);
 }
 
-// A missing publicationYear means the paper is held back, not discarded: the
-// caller keeps the PaperCandidate and may call toPaper() again once a year is known.
+// A missing or non-finite publicationYear (undefined, or NaN/Infinity from a failed
+// parse) means the paper is held back, not discarded: the caller keeps the
+// PaperCandidate and may call toPaper() again once a real year is known.
+//
+// This is NOT a retry mechanism for a failed API call. A failed/incomplete API
+// response is the collection feature's concern (it re-calls). toPaper() only
+// handles the other case: the call SUCCEEDED but the record genuinely has no
+// year (e.g. an arXiv preprint), where re-calling the same provider would return
+// the same missing year. The year is expected to arrive later from a different
+// path (a preprint that gets published, a second provider, a metadata-enrichment
+// pass), so the already-fetched fields are kept rather than re-fetched. The
+// held-back candidate lives only in memory for the current collection pass; this
+// module persists nothing and adds no retry queue (spec Session 2026-07-04).
+//
+// Promotion policy for the other candidate-only "unknown" fields: citationCount
+// and references may be `undefined` ("not known yet") on a candidate, but a valid
+// Paper always carries concrete values, so toPaper() defaults an unknown
+// citationCount to 0 and unknown references to []. This collapses the
+// unknown/zero distinction at promotion — a candidate never enriched with
+// citation data becomes a Paper reading "0 citations". Callers that need true
+// uncited-vs-unknown accuracy (260702-004/007) must enrich the candidate (e.g.
+// via Semantic Scholar) BEFORE promoting it. publicationYear is not defaulted:
+// it is a hard requirement, so a missing year holds the paper back instead.
 export function toPaper(candidate: PaperCandidate): Paper | undefined {
-	if (candidate.publicationYear === undefined) {
+	const { publicationYear } = candidate;
+	if (publicationYear === undefined || !Number.isFinite(publicationYear)) {
 		return undefined;
 	}
 
-	return { ...candidate, publicationYear: candidate.publicationYear };
+	return {
+		...candidate,
+		publicationYear,
+		citationCount: candidate.citationCount ?? 0,
+		references: candidate.references ?? [],
+	};
 }
 
 export function isValidPaper(data: unknown): data is Paper {
@@ -71,10 +108,14 @@ export function isValidPaper(data: unknown): data is Paper {
 
 	return (
 		typeof candidate.title === 'string' &&
-		typeof candidate.publicationYear === 'number' &&
+		// A real year is a finite number — reject NaN/Infinity (e.g. from a failed
+		// parse), which `typeof === 'number'` would otherwise let through.
+		Number.isFinite(candidate.publicationYear) &&
 		Array.isArray(candidate.authors) &&
 		candidate.authors.every((author) => typeof author === 'string') &&
 		typeof candidate.citationCount === 'number' &&
+		Number.isFinite(candidate.citationCount) &&
+		candidate.citationCount >= 0 &&
 		typeof candidate.abstract === 'string' &&
 		typeof candidate.sourceId === 'string' &&
 		isPaperSourceId(candidate.sourceId) &&
