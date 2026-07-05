@@ -72,8 +72,31 @@ check('malformed sourceId rejected', !isPaperSourceId('1706.03762'));
 
 // references must be an array of valid sourceIds (empty allowed); a bad element invalidates the paper
 check('paper with a non-sourceId reference is rejected', !isValidPaper({
-  title: 't', publicationYear: 2017, authors: [], citationCount: 0, abstract: '',
+  title: 't', publicationYear: 2017, authors: [], citationCount: 0, citationsKnown: true, abstract: '',
   sourceId: 'arxiv:1', references: ['not-a-sourceid'],
+}));
+
+// citationsKnown (FR-018): missing citation data never holds a paper back — it is promoted
+// immediately with citationCount 0 and citationsKnown = false, distinguishing "unknown" from
+// a confirmed zero (which has citationsKnown = true).
+const enrichedUnknown = toPaper({
+  title: 'arXiv-only preprint', publicationYear: 2024,
+  authors: [], citationCount: undefined, abstract: '',
+  sourceId: 'arxiv:2401.00001', references: undefined,
+});
+check('paper promoted without citation data is NOT held back', enrichedUnknown !== undefined);
+check('citationsKnown is false when citation data was never fetched', enrichedUnknown?.citationsKnown === false);
+
+const confirmedUncited = toPaper({
+  title: 'Confirmed uncited paper', publicationYear: 2024,
+  authors: [], citationCount: 0, abstract: '',
+  sourceId: 'arxiv:2401.00002', references: [],
+});
+check('citationsKnown is true when citation data was actually fetched', confirmedUncited?.citationsKnown === true);
+
+check('paper missing citationsKnown is rejected', !isValidPaper({
+  title: 't', publicationYear: 2017, authors: [], citationCount: 0, abstract: '',
+  sourceId: 'arxiv:1', references: [],
 }));
 ```
 

@@ -45,10 +45,10 @@ export interface PaperCandidate {
   title: string;
   publicationYear: number | undefined;
   authors: string[];
-  citationCount: number;
+  citationCount: number | undefined; // undefined = "not known yet", distinct from confirmed 0
   abstract: string;
   sourceId: PaperSourceId;
-  references: PaperSourceId[]; // FR-016 extension; outbound citations (see below)
+  references: PaperSourceId[] | undefined; // FR-016 extension; undefined = not fetched yet (see below)
 }
 
 export interface Paper {
@@ -56,6 +56,7 @@ export interface Paper {
   publicationYear: number;
   authors: string[];
   citationCount: number;
+  citationsKnown: boolean; // FR-018; see Behavior guarantees below
   abstract: string;
   sourceId: PaperSourceId;
   references: PaperSourceId[]; // FR-016 extension; outbound citations (see below)
@@ -69,9 +70,11 @@ export function isValidPaper(data: unknown): data is Paper;
 ```
 
 **Behavior guarantees**:
-- `toPaper` returns `undefined` if and only if `candidate.publicationYear` is `undefined` **or** non-finite (`NaN`/`Infinity`) — the "hold back" rule. It never throws, and never returns a `Paper` with a missing or non-finite year.
-- `isValidPaper` returns `false` for any input missing a field, with the wrong type for a field, with a non-finite/missing `publicationYear`, or with a negative or non-finite `citationCount` — never throws. `references` must be an array in which every element is a valid `PaperSourceId` (an empty array is valid).
+- `toPaper` returns `undefined` if and only if `candidate.publicationYear` is `undefined` **or** non-finite (`NaN`/`Infinity`) — the "hold back" rule, and publication year is the **only** hold-back trigger (FR-018). It never throws, and never returns a `Paper` with a missing or non-finite year.
+- `toPaper` never holds a paper back for missing citation data: it sets `citationCount: candidate.citationCount ?? 0`, `references: candidate.references ?? []`, and `citationsKnown: candidate.citationCount !== undefined` — so a candidate whose citation data was never fetched is still promoted, with `citationsKnown = false` recording that its `citationCount: 0` is unconfirmed rather than a real zero.
+- `isValidPaper` returns `false` for any input missing a field, with the wrong type for a field, with a non-finite/missing `publicationYear`, with a negative or non-finite `citationCount`, or with a non-boolean `citationsKnown` — never throws. `references` must be an array in which every element is a valid `PaperSourceId` (an empty array is valid).
 - `references` is an **FR-016 additive extension** to the 001 baseline, fixed here so the downstream collection/note-saving/graph-conversion features (`260702-002`/`003`/`006`) share one definition. It holds the sourceIds of the papers this paper *cites* (outbound only); `citedBy` is never stored — the graph feature derives it by inverting `references`. Populating `references` is those later features' responsibility; this contract only fixes its shape and validation.
+- `citationsKnown` (FR-018) is `true` only when `citationCount`/`references` came from a citation-aware provider; consumers that branch on citation status (`260702-004` future-directions text, `260702-007` uncited-node styling) MUST check `citationsKnown` together with `citationCount` — a `citationCount === 0` with `citationsKnown === false` is "unknown," not "confirmed uncited." Correcting a `false` flag later (re-enrichment, or manual refresh `260702-005`) is out of scope for this contract.
 - Two `Paper`/`PaperCandidate` values with equal `sourceId` MUST be treated as the same paper; the inverse (different `sourceId` ⇒ different paper) is guaranteed only within a single provider, not across providers.
 
 ## `src/models/settings.ts`
