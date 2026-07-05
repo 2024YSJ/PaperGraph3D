@@ -131,6 +131,18 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - The exact retry/back-off policy and provider rate-limit handling are implementation details; this specification requires only that failures retry on the next interval/load and are surfaceable to the user.
 - Providers differ in both wire format and coverage: arXiv returns Atom XML and supplies no citation data; Semantic Scholar returns JSON and supplies citation data. This feature parses and normalizes both into the plugin's single canonical Paper shape (001). The internal representation the rest of the plugin uses — a JSON record plus a Markdown note (003) — is the plugin's own normalized schema, distinct from and never a passthrough of any provider's wire payload.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — First-collection window for a brand-new subscription (`lastCheckedAt` = null).** 001 allows `lastCheckedAt` to be null (never checked). FR-004 defines the catch-up window as last-checked → now but leaves the null case open: does a new subscription collect forward-only from registration, or back-fill an initial window (and how far back)? *(High impact — controls whether registering a subscription floods the vault.)*
+- **OQ-2 — Provider routing per subscription type.** Is discovery arXiv-only (with Semantic Scholar used only for enrichment), or does Semantic Scholar also serve keyword/author discovery? FR-008 confines all provider calls here but does not fix the per-type routing.
+- **OQ-3 — arXiv ↔ Semantic Scholar identity matching for enrichment.** Enriching an arXiv paper with citation data requires matching it to its Semantic Scholar record (arXiv ID, DOI, …). 001 scopes cross-provider *identity* out of scope, so the enrichment matching method must be defined here.
+- **OQ-4 — `sourceId` scheme for enriched references.** When Semantic Scholar supplies a paper's references/citations, what `sourceId` scheme do they carry (normalize to `arxiv:` when possible, or keep `semanticScholar:`)? Determines whether graph edges (006) connect to stored papers.
+- **OQ-5 — references unknown → `[]` collapse.** Promotion collapses unknown references to `[]` (mirroring the citationCount policy). Should references, like citationCount, require enrichment before promotion when the graph (006) relies on edges, or is a temporarily missing edge acceptable? *(See 006 Open Questions.)*
+- **OQ-6 — Cross-provider duplicates.** The same work can carry different `sourceId`s across providers (001, out of scope), so it may appear twice. Accept possible duplicate nodes, or add later reconciliation?
+- **OQ-7 — Scheduling mechanism.** Per-subscription timers vs a single periodic sweep; interval alignment/drift. *(Plan-level.)*
+
 ## Out of Scope
 
 - The file writes for the record/note pairing are owned by 003; this feature sequences the pipeline and hands 003 the finished paper, but performs no file I/O itself.

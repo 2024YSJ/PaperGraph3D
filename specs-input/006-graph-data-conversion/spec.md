@@ -74,6 +74,13 @@ As the developer building the on-screen display, I want to receive already-organ
 - Stored records expose their outbound references in the shape fixed by 001; this feature only inverts and assembles them, it does not fetch citation data (that is 002/005).
 - The display feature (007) decides visual encoding; this feature only guarantees each node carries the data needed to compute those encodings (year, citation status).
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — Empty references: "cites nothing" vs "not yet enriched".** Conversion cannot distinguish the two, so real citation edges may be silently missing until enrichment/refresh. Accept this, or require an "enriched" signal (002 OQ-5 / 003 OQ-1) so conversion can tell them apart?
+- **OQ-2 — Reference scheme and edge matching.** Whether an edge connects depends on the reference `sourceId` scheme chosen in 002 (OQ-4): a reference whose scheme/prefix differs from stored papers' `sourceId`s becomes a dangling edge. The scheme must be confirmed so edges resolve.
+
 ## Out of Scope
 
 - Actual on-screen rendering and interaction are owned by 007.

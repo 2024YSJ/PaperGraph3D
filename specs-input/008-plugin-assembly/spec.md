@@ -109,6 +109,13 @@ As a user, I want any background work (like periodic subscription checks) to sto
 - Each settings section renders fields owned by the corresponding feature — including the summarization provider and credentials, which are 004's extension fields (001 FR-016). This feature only surfaces them; their meaning and validation belong to the owning feature.
 - User-facing notifications use the platform's standard notice mechanism; each feature owns the wording and timing of its own messages (002 provider failures, 003 folder access, 004 credentials, 005 refresh outcome, 007 empty search). This feature does not centralize them, consistent with holding no product logic of its own.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — Settings migration/versioning** across schema changes (record migration is 003 OQ-10; this is the settings counterpart).
+- **OQ-2 — Surfacing per-feature extension settings.** How the four-section settings screen renders feature-owned extension fields (e.g. 004's provider/credentials) — a generic mechanism or per-feature custom sections.
+
 ## Out of Scope
 
 - The actual behavior logic of each individual feature is owned by that feature (002–007). This feature covers only connection, initialization, entry points, settings surface, and cleanup.

@@ -136,6 +136,17 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - The uncited visual distinction reads the record's citation count (0 = uncited). Its accuracy depends on collection (002) having enriched the paper's citation data before promotion (002 FR-016); an un-enriched paper reads 0 and is shown as uncited until a manual refresh (005) updates it.
 - The 3D rendering technology is an implementation choice constrained by the project's mobile-compatibility and platform-compliance rules; this spec fixes behavior, not the rendering library.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — Intra-year-plane layout.** How are nodes positioned on the two non-year axes — force-directed, citation-driven, or a deterministic layout? (001's `layout` setting is a placeholder.)
+- **OQ-2 — `colorScheme` meaning.** What does the graph-display color scheme (e.g. `byPublicationYear`) actually encode?
+- **OQ-3 — "Most recent" definition** for the uncited highlight — same question as 004 OQ-1.
+- **OQ-4 — Hide persistence.** When "remove from graph" only hides a node, is that hidden state persisted across sessions or session-only?
+- **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it.
+- **OQ-6 — Read/unread default and storage shape** — the default state and the extension-field representation (coordinate with 003).
+
 ## Out of Scope
 
 - Producing the graph data is owned by 006.

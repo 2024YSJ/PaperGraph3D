@@ -74,6 +74,13 @@ As a user, I know a citation count I saved a while ago may have changed, so I wa
 - The refresh action is surfaced to the user through the graph's right-click menu (007) and/or a command; this feature provides the refresh behavior itself, not its menu placement.
 - Whether a manually edited managed field is overwritten follows 003's policy: the JSON record is authoritative and its managed region is rebuilt on update.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — What a refresh actually persists for inbound citations.** FR-002 re-checks "which papers cite it" (inbound), but 006/001 derive `citedBy` by inverting stored `references` and never store it. So does refresh persist only the updated citation count plus this paper's outbound references, or does it translate inbound-citation data into other papers' `references`? *(Cross-cuts 006.)*
+- **OQ-2 — Re-summarization on status change.** If a refresh flips a paper's citation status (uncited ↔ cited), does it re-trigger 004's summary/future-directions text, or leave the existing text unchanged? *(See 004 OQ-4.)*
+
 ## Out of Scope
 
 - Discovering new papers is owned by 002.

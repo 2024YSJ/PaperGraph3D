@@ -118,6 +118,23 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 - The plugin-managed region of the note is delimited so it can be rewritten wholesale without ambiguity about where the user's body begins.
 - The canonical Paper Record content arrives from collection (002) or refresh (005); this feature does not fetch from external providers.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — Record schema vs the `Paper` interface.** Is the on-disk JSON exactly a serialized `Paper` (001), or a superset carrying metadata — read/unread, summary, future-directions text, an "enriched" flag, created/updated timestamps, a **schema version**? The concrete record schema must be fixed here.
+- **OQ-2 — Managed-region format in the note.** YAML frontmatter, a delimited comment block (e.g. `<!-- pg3d --> … <!-- /pg3d -->`), or a dedicated heading section?
+- **OQ-3 — Which fields the note mirrors.** All record fields (including raw reference `sourceId`s) or a human-readable subset? Define exactly which fields are "shared" for the consistency invariant (FR-002).
+- **OQ-4 — Rendering of list fields** (authors, references) in the note.
+- **OQ-5 — Where `sourceId` is recovered after a manual rename.** FR-009 requires locating the paper by `sourceId` after a rename, but the plugin never parses the note body — so is `sourceId` read from the filename, the JSON content, or the note frontmatter? (If from the filename, a rename breaks the link.)
+- **OQ-6 — In-memory index vs on-demand reads.** Does the plugin keep a session-long in-memory map of records, or read JSON files on demand for each operation (dedup, graph build, toggles)? *(Answers "is the Paper object kept resident?")*
+- **OQ-7 — External change detection.** Does the plugin watch for and reload external edits/deletes of the JSON or MD files?
+- **OQ-8 — Load-time scan cost.** Is there a full scan of the storage folder at startup to build the index, and how does it scale to many papers?
+- **OQ-9 — Per-paper JSON files vs a single JSON index.** The current assumption is per-paper `.json` sidecars; finalize this vs one consolidated index.
+- **OQ-10 — Schema versioning / migration** of records across future field additions.
+- **OQ-11 — Storage-location change.** If the user changes the storage folder after data exists, are existing pairings moved, left in place, or re-created?
+- **OQ-12 — Multi-device sync conflicts.** Obsidian Sync or git editing the same JSON/MD on two devices — how are conflicts detected/resolved?
+
 ## Out of Scope
 
 - Where papers come from (external collection) is owned by 002.

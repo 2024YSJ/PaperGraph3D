@@ -105,6 +105,15 @@ As a user, I want to choose which provider generates summaries and enter the req
 - Citation status ("uncited" = citation count 0) is derived from the paper's canonical record, populated by collection (002) or refresh (005). Its reliability depends on 002 enriching the paper before promotion; per 002 FR-016, when this feature is on, enrichment precedes promotion so a 0 is a confirmed count, not an un-enriched placeholder.
 - This feature does not self-trigger: the collection pipeline (002) invokes it (when enabled) *before* a paper is persisted, and its generated text is handed to 003 as part of a single persist. It is the only place summarization calls are made, analogous to how 002 is the only place collection calls are made.
 
+## Open Questions
+
+*Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
+
+- **OQ-1 — Definition of "most recent" uncited papers.** Is "recent" a time window, a since-year cutoff, or top-N by date? *(Shared with 007.)*
+- **OQ-2 — Summarization provider contract.** What kind of provider is supported (which LLM/API), and its request/response shape and auth/credential format?
+- **OQ-3 — "Too short / empty" threshold** that triggers the abstract fallback (FR-007).
+- **OQ-4 — Recomputation.** If a paper later transitions uncited → cited (via refresh 005), or its abstract changes, is the summary/future-directions text regenerated, or kept as first generated? *(See 005 Open Questions.)*
+
 ## Out of Scope
 
 - Collecting papers (002) and persisting the record/note pairing (003) are not covered here; this feature only generates text and hands it to 003 as managed content.
