@@ -146,6 +146,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **OQ-4 — Hide persistence.** When "remove from graph" only hides a node, is that hidden state persisted across sessions or session-only?
 - **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it.
 - **OQ-6 — Read/unread default and storage shape** — the default state and the extension-field representation (coordinate with 003).
+- **OQ-7 — Mobile viability and `isDesktopOnly`.** The 3D rendering/interaction choice (OQ-1) decides whether the plugin can run on Obsidian mobile. `manifest.json` currently sets `isDesktopOnly: false` — the project default, per the constitution's mobile-compatibility principle, and consistent with the rest of the plugin (network via `requestUrl`, vault I/O) being mobile-capable. If the chosen 3D approach depends on Node/Electron APIs, or is unusable at acceptable performance on touch/mobile, then `isDesktopOnly` must flip to `true`. That is a deliberate decision to drop mobile support — to be recorded here and in the constitution's platform-compliance/mobile notes, not defaulted. Decide during 007 planning: keep the rendering mobile-compatible, or commit to desktop-only and set the manifest flag accordingly.
 
 ## Out of Scope
 
