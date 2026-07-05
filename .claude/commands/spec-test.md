@@ -20,14 +20,17 @@ You are running the `/spec-test` command. Its job is to check whether the **curr
 ## 2. Derive test cases
 
 Build one test case per:
-- each **Acceptance Scenario** (Given/When/Then) under every User Story, and
-- each **Success Criteria** item (`SC-xxx`).
+- each **Acceptance Scenario** (Given/When/Then) under every User Story,
+- each **Success Criteria** item (`SC-xxx`), and
+- each **Edge Case** bullet that describes a concrete input → outcome (skip vague ones).
 
-Do **not** create tests from Functional Requirements (`FR-xxx`) directly — they are covered indirectly by the scenarios/SCs. Give each test a stable id: the scenario as `US<n>.<m>` and success criteria as their `SC-xxx` id.
+Do **not** create tests from Functional Requirements (`FR-xxx`) directly — they are covered indirectly by the scenarios/SCs. Give each test a stable id: the scenario as `US<n>.<m>`, success criteria as their `SC-xxx` id, and edge cases as `EC-<n>`.
 
 ## 3. Classify testable vs SKIP
 
 A test case is **SKIP/PENDING** (not FAIL) when it cannot be verified against the code that exists today — e.g. it depends on an unimplemented feature, file I/O, network, or UI that this spec's implementation does not yet provide. Record a one-line reason for every SKIP. Everything that *can* be exercised against the current exports must be a real assertion (PASS/FAIL). The goal is: "the implemented part passes" is unmistakable, separate from "not yet implemented".
+
+When a Success Criterion is only **partly** verifiable at this layer, split it: keep the verifiable structural part as a real assertion (`SC-xxx`) and add a sibling SKIP (`SC-xxx-<part>`) for the part owned by another feature. Do not mark a case PASS if it only checks a fraction of what the SC claims — decompose instead of over-claiming.
 
 ## 4. Create the output folder (overwrite)
 
@@ -41,7 +44,9 @@ Write `specs-test/<spec-name>/<spec-name>.spec-test.ts` using the repo's establi
 - Contain one `check(...)` per testable case and one `skip(...)` per pending case, each labelled with its id and the scenario/SC text.
 - At the end, print one line per case as `[PASS] <id> — <desc>`, `[FAIL] <id> — <desc>: <error>`, or `[SKIP] <id> — <desc> (<reason>)`, then a summary line `Summary: <p> passed, <f> failed, <s> skipped`, and set `process.exitCode = f > 0 ? 1 : 0`.
 
-Keep the assertions honest — assert real observable behavior of the exported functions/types; do not write tautologies.
+Keep the assertions honest — assert real observable behavior of the exported functions/types; do not write tautologies (e.g. `key in obj` on a literal). Prefer asserting via the exported validators/functions over re-deriving the implementation's own checks.
+
+**Depth of negative testing.** For any "missing / invalid attribute" scenario, do not stop at deleting the field. For each field also test at least one **present-but-wrong-type** value (so the test proves the validator type-checks rather than merely presence-checks), and for **array/collection** fields test both a non-array value and an array containing an invalid element (to exercise `.every(...)`-style branches). Where the spec says a value may be "unknown / empty", probe the realistic boundary forms (`undefined`, `null`, empty string, non-numeric) — asserting the spec's true guarantee (e.g. "never becomes valid data") through the combined gate, not just one function in isolation.
 
 ## 6. Run project type-check
 
@@ -63,6 +68,7 @@ Capture the full stdout/stderr and the exit code.
 Write `specs-test/<spec-name>/report.md` containing:
 - A header: spec name, source branch (`git rev-parse --abbrev-ref HEAD`), date, `tsc --noEmit` result, and the counts `passed / failed / skipped`.
 - A table with columns `id | scenario/SC | status | note` for every case.
+- A **Known residual limitations** section: edge behaviors you noticed the implementation does not guard (e.g. a validator that accepts `NaN`, or an unspecified leniency) but which are outside this suite's asserted scope. List them as notes, not failures — unless they clearly violate a spec requirement, in which case they are a real FAIL.
 - A fenced block with the raw test run output appended at the end.
 
 ## 9. Do not fix code
