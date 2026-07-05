@@ -22,6 +22,10 @@ User wants subscription, paper, and settings data to have one fixed shape so eve
 
 - Q: When a collected paper has no known publication year, what exactly is the scope of "held back" — is it persisted for later retry, and how does it differ from an API call that fails outright? → A: These are two distinct cases handled at different layers, and only the second is this spec's concern. (1) An API call that fails or returns an incomplete/absent response (network error, rate limit, server error) is NOT covered here — the correct response is to re-call, which is the collection feature's retry concern. (2) A call that *succeeds* but whose returned record genuinely lacks a publication year is what "held back" means: the incomplete record is kept as the pre-validation shape and does not become a valid paper. Re-calling the same provider would deterministically return the same missing year, so retry is not a same-call re-fetch — the year is expected to arrive later from a different path (e.g., a preprint that is later published, a second provider, or a metadata-enrichment pass). This spec fixes only (a) the pre-validation shape that carries the year as optional and (b) the single validation gate that converts it to a valid paper once a year is present. The held-back record lives only in memory for the current collection pass and is NOT persisted by this feature; re-evaluation is delegated to the next scheduled subscription check (which re-fetches and re-runs the gate). Where or whether a held-back record is persisted or queued for retry is out of scope, owned by the collection feature (260702-002).
 
+### Session 2026-07-05
+
+- Q: What counts as a valid publication year and citation count — are non-finite (NaN/Infinity) or negative values acceptable? → A: No. A valid publication year MUST be a finite number; a non-finite value (NaN or Infinity, e.g. produced by a failed numeric parse) is treated exactly like an unknown year — held back, never valid. A citation count MUST be a finite, non-negative number; a non-finite or negative citation count makes the paper invalid. These refine the "required, never empty" rule for year and add a range rule for citation count (reflected in `isValidPaper` and `toPaper`).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Reference the subscription data shape (Priority: P1)
@@ -74,6 +78,7 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 ### Edge Cases
 
 - What happens when a paper is collected without a known publication year? First distinguish two cases. If the *API call failed* (no response, or an incomplete response due to a network/rate-limit/server error), that is not this feature's concern — the collection feature simply re-calls. If the *call succeeded* but the returned record genuinely has no publication year, the paper is held back — not created as a valid paper record — rather than being permanently discarded, so it can be reconsidered later if a publication year becomes known. "Held back" here is scoped to the current collection pass in memory: the incomplete record is not persisted by this feature, and re-evaluation happens on the next scheduled subscription check (which re-fetches and re-runs the validation gate). Re-calling the same provider immediately would return the same missing year, so retry is deliberately deferred to a later pass where the year may arrive from a different path (see Clarifications, Session 2026-07-04).
+- What happens when a paper's publication year is present but not a real number (NaN or Infinity, e.g. from a failed numeric parse)? It is treated exactly like an unknown year — held back, not created as a valid paper record — rather than slipping through as a valid year.
 - What happens when a check interval outside the allowed list (6, 12, 24, 48, or 72 hours) is attempted? The attempt is rejected and the subscription's check interval remains at its previous valid value (or its default, if newly created).
 - What happens when a subscription type other than keyword, author, or arXiv category is attempted? The attempt is rejected in the same way as an invalid check interval.
 - What happens when a subscription is created without an explicit check interval? It receives the default check interval defined by this specification (see Assumptions) rather than being left without one.
@@ -91,7 +96,7 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 - **FR-006**: The subscription data definition MUST include a last-checked attribute recording the most recent time the subscription was checked for new papers.
 - **FR-007**: The subscription data definition MUST include an enabled attribute indicating whether the subscription is currently active.
 - **FR-008**: The paper data definition MUST include title, publication year, a list of authors, citation count, abstract, and source identifier attributes.
-- **FR-009**: Publication year MUST be treated as a required attribute of paper data that can never be empty for the paper to be considered valid.
+- **FR-009**: Publication year MUST be treated as a required attribute of paper data that can never be empty for the paper to be considered valid, and MUST be a finite number — a non-finite value (NaN or Infinity) is treated as unknown and held back, not valid.
 - **FR-010**: A collected paper whose publication year is unknown MUST be held back from becoming a valid paper record, rather than being discarded outright, until a publication year becomes known.
 - **FR-011**: The plugin settings data definition MUST include a default value for where collected data is stored, and that default MUST be a concrete, non-empty, immediately usable location — not an empty or unset value — so the plugin is usable right after installation with no required setup.
 - **FR-012**: The plugin settings data definition MUST include a default value for whether the summarization feature is enabled.
@@ -99,6 +104,7 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 - **FR-014**: Subscription, paper, and settings data that is missing any of its respective required attributes MUST be identifiable as invalid.
 - **FR-015**: A paper's source identifier MUST be globally unique per paper and MUST structurally encode which external provider issued it (e.g., a provider-prefixed value such as `arxiv:2301.12345`), so that identifiers from different providers can never collide. This specification does not require recognizing the same underlying paper when it is issued different identifiers by different providers.
 - **FR-016**: Later features MAY add further attributes to the Subscription, Paper, or Settings entities defined here (for example, a read/unread flag or citation-relationship data) without needing those attributes to be defined by this specification, provided no attribute fixed here is removed or redefined.
+- **FR-017**: Citation count MUST be a finite, non-negative number; a negative or non-finite citation count makes the paper invalid.
 
 ### Key Entities
 
@@ -114,7 +120,7 @@ As a developer building the settings UI or any feature that reads plugin-wide co
 
 - **SC-001**: Every feature specified after this one can define its data needs by referencing only this specification's entity definitions, with zero follow-up questions about subscription, paper, or settings data shape.
 - **SC-002**: 100% of subscription records missing any of its six defined attributes, or using a check interval outside the five allowed options, are identified as invalid.
-- **SC-003**: 100% of paper records missing a publication year, or missing any of its six defined attributes, are identified as invalid.
+- **SC-003**: 100% of paper records missing a publication year — or carrying a non-finite year or a negative/non-finite citation count — or missing any of its six defined attributes, are identified as invalid.
 - **SC-004**: 100% of newly loaded plugin settings resolve to a complete set of default values (storage location, summarization enabled, graph display options) with no missing group, even before a person changes anything.
 - **SC-005**: 100% of paper records can be deduplicated using their source identifier alone, with zero possibility of two different papers issued by different providers sharing an identifier.
 
