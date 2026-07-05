@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: "Based on the subscriptions a user has registered, periodically find new papers from external academic databases (arXiv, Semantic Scholar). A user registers subscriptions for keywords, authors, or arXiv categories; new papers are collected automatically. All communication with external databases happens only within this feature. Collection does not run while the plugin is off — instead, when the plugin turns back on, it searches for the papers that appeared during the time it was off (the gap between when it stopped and when it started again). Provider responses arrive as JSON."
+**Input**: "Based on the subscriptions a user has registered, periodically find new papers from external academic databases (arXiv, Semantic Scholar). A user registers subscriptions for keywords, authors, or arXiv categories; new papers are collected automatically. All communication with external databases happens only within this feature. Collection does not run while the plugin is off — instead, when the plugin turns back on, it searches for the papers that appeared during the time it was off (the gap between when it stopped and when it started again). Provider responses arrive in provider-specific formats (arXiv as Atom XML, Semantic Scholar as JSON) and are parsed into the canonical paper shape."
 
 ## Clarifications
 
@@ -15,6 +15,11 @@
 - Q: What happens to collection while Obsidian (or the plugin) is turned off? → A: No collection runs in the background while the plugin is off — there is no external process. Instead, each subscription records the last time it was checked, and when the plugin next loads it performs a single catch-up search per enabled subscription over the window from that last-checked time up to the current time, so papers published while the plugin was off are still found. Nothing collected during the off period is fabricated or back-dated beyond what the providers actually report for that window.
 - Q: If the plugin was off for a very long time (weeks), does the catch-up window grow without bound? → A: The catch-up search covers the whole elapsed window, but is bounded by the same sequential, non-freezing processing rule as any large result set (see Edge Cases). If a provider caps how far back a single query can reach, the catch-up is limited to what the provider will return; the user is informed if the window could not be fully covered.
 - Q: What is authoritative for a collected paper — the provider's response or anything derived from it? → A: The provider's response is parsed into the canonical Paper shape defined in 001; the persistence feature (003) then stores that paper as its JSON record + Markdown note pair. The parsed paper data is what every downstream feature consumes. This feature never writes files; note/record creation is 003's job.
+
+### Session 2026-07-05
+
+- Q: How does a raw provider response become a valid Paper, and what happens to citation data that a provider such as arXiv does not supply at all? → A: A response is first parsed into a `PaperCandidate` (001), which may carry an *unknown* citation count and unknown references — arXiv returns no citation data, so those stay unknown rather than being set to 0/empty. The candidate is then *promoted* to a valid `Paper` only when it has a publication year (otherwise it is held back — see FR-011). On promotion, an unknown citation count defaults to 0 and unknown references default to an empty list. Because that default collapses "unknown" into "zero", any subscription whose papers need an accurate citation count or relationships for later features (future-directions text 004, uncited-node styling 007) MUST be enriched from a citation-aware provider (Semantic Scholar) *before* promotion; a paper promoted without enrichment is stored reading "0 citations", which a later manual refresh (005) can correct.
+- Q: Why keep "unknown" separate from 0 in the candidate at all, if promotion collapses it anyway? → A: So this feature can decide *whether to enrich* before promoting. A candidate with an unknown citation count is a signal that citation data has not been fetched yet; a candidate reading 0 after enrichment is a confirmed "uncited" paper. Collapsing them only at the final promotion step keeps that decision available for as long as it is useful.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -41,7 +46,7 @@ As a user, I want each enabled subscription to check for new papers on its own i
 
 **Why this priority**: Scheduled collection is the feature's core value; everything downstream (notes, graph) depends on papers arriving.
 
-**Independent Test**: With a subscription whose interval has elapsed, advance time and confirm a check fires, produces canonical Paper Records from the (stubbed) provider JSON, and updates the subscription's last-checked time.
+**Independent Test**: With a subscription whose interval has elapsed, advance time and confirm a check fires, produces canonical Paper data (by parsing the stubbed provider response into a candidate and promoting it), and updates the subscription's last-checked time.
 
 **Acceptance Scenarios**:
 
@@ -73,6 +78,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - If the external database is temporarily unreachable, the check must not crash; the system retries at the next scheduled interval (or next load) and is able to inform the user of the failure. The subscription's last-checked time is not advanced past a window that was not actually searched.
 - If an unusually large number of papers is discovered at once (e.g., right after registering a subscription, or after a long off period), they must be processed sequentially without freezing the interface.
 - If a discovered paper is missing required information such as publication year (a *successful* response lacking a year), it is skipped for this pass rather than collected, per the hold-back rule in 001 — not treated as a provider failure.
+- An arXiv-only paper carries no citation data, so its candidate's citation count and references are unknown. If it is promoted without Semantic Scholar enrichment, it is stored with a citation count of 0 and no references — indistinguishable from a genuinely uncited paper until a later enrichment or a manual refresh (005) updates it. This is expected behavior, not a failure.
 - If the plugin is turned off mid-check, the subscription's last-checked time must not advance past the portion of the window that was actually completed, so the unsearched remainder is picked up on the next load.
 - If two subscriptions' catch-up windows overlap and surface the same paper, it is still processed only once.
 - If a provider limits how far back a catch-up query can reach, the user is informed that the off-period window could not be fully covered.
@@ -95,11 +101,13 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **FR-012**: If a provider is unreachable or a call fails, the system MUST retry on the next scheduled interval or next load, MUST NOT advance the last-checked time past the unsearched window, and MUST be able to inform the user of the failure.
 - **FR-013**: A large batch of discovered papers MUST be processed sequentially without freezing the interface.
 - **FR-014**: If a provider caps how far back a single catch-up query can reach, the system MUST inform the user that the off-period window could not be fully covered.
+- **FR-015**: Collection MUST parse each provider response into a `PaperCandidate` (001) before it becomes a valid `Paper`. Where a provider does not supply a citation count or references (e.g., arXiv), the candidate MUST represent them as *unknown* rather than as 0 or an empty list, so that "unknown" is never conflated with a confirmed zero.
+- **FR-016**: A candidate MUST be promoted to a valid `Paper` only when it has a publication year; on promotion, an unknown citation count becomes 0 and unknown references become an empty list. To store an accurate citation count and citation relationships, collection MUST enrich the candidate from a citation-aware provider (e.g., Semantic Scholar) *before* promotion. A paper promoted without enrichment is stored with a citation count of 0, correctable later by a manual refresh (005).
 
 ### Key Entities
 
 - **Subscription**: As defined in 001. This feature reads its type/value/interval/last-checked/enabled fields and updates last-checked after each check.
-- **Paper / PaperCandidate**: As defined in 001. This feature parses provider responses into paper data (holding back candidates that lack a publication year, per the 001 rule); persisting each paper as a JSON record + Markdown note is owned by 003. This feature writes no files.
+- **Paper / PaperCandidate**: As defined in 001. This feature parses provider responses into a `PaperCandidate` (which may carry an unknown citation count and unknown references when a provider like arXiv supplies none), optionally enriches it from a citation-aware provider, then promotes it to a valid `Paper` — holding back candidates that lack a publication year (per the 001 rule) and defaulting an unknown citation count to 0 / unknown references to an empty list on promotion. Persisting each paper as a JSON record + Markdown note is owned by 003. This feature writes no files.
 - **Collection Window**: The time range a given check or catch-up search covers — from the subscription's last-checked time to the moment of the check. Not persisted as its own entity; it is derived each time from the subscription's last-checked time and the current time.
 
 ## Success Criteria *(mandatory)*
@@ -112,6 +120,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **SC-004**: If the same paper is found through multiple subscriptions or overlapping windows, it is processed exactly once.
 - **SC-005**: Disabling a subscription results in zero further collection attributable to it, including on later loads.
 - **SC-006**: 100% of collected papers are represented as canonical Paper data parsed from provider responses; no other feature makes external calls.
+- **SC-007**: A paper collected from a citation-less provider (arXiv) without enrichment is stored with a citation count of 0 and empty references — never a fabricated non-zero value; after enrichment or a manual refresh (005) it reflects the citation-aware provider's actual values.
 
 ## Assumptions
 
