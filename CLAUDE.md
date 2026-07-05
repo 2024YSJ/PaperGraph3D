@@ -58,5 +58,5 @@ One feature spec exists so far: `specs/001-core-data-models/` (core data structu
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-core-data-models/plan.md
+at specs/002-subscription-paper-collection/plan.md
 <!-- SPECKIT END -->
