@@ -3,7 +3,12 @@
 // Acceptance Scenarios and Success Criteria. Run via esbuild + node
 // (the repo's no-test-runner convention). Report-only.
 
-import { isValidSubscription, assignCheckInterval } from '../../src/models/subscription';
+import {
+	isValidSubscription,
+	assignCheckInterval,
+	DEFAULT_CHECK_INTERVAL_HOURS,
+	ALLOWED_CHECK_INTERVALS_HOURS,
+} from '../../src/models/subscription';
 import type { Subscription } from '../../src/models/subscription';
 import { isValidPaper, toPaper, isPaperSourceId } from '../../src/models/paper';
 import type { PaperCandidate, Paper } from '../../src/models/paper';
@@ -263,6 +268,53 @@ skip(
 	'Actual deduplication of papers by source identifier',
 	'001 only guarantees the id is collision-free; performing deduplication is owned by collection (002), so the dedup mechanism is not verifiable at the data-model layer.',
 );
+
+// ---- Edge Cases ----------------------------------------------------------
+
+check('EC-1', 'A paper with no known year is held back, not discarded — and can be reconsidered once a year is known', () => {
+	const candidate: PaperCandidate = {
+		title: 'Preprint',
+		publicationYear: undefined,
+		authors: ['A'],
+		citationCount: undefined,
+		abstract: 'x',
+		sourceId: 'arxiv:2401.00001',
+		references: undefined,
+	};
+	assert(toPaper(candidate) === undefined, 'no-year paper is held back');
+	// "Not discarded": the candidate is unchanged and can be promoted later.
+	assert(candidate.publicationYear === undefined, 'the candidate is not mutated by a failed promotion');
+	assert(becomesValidPaper({ ...candidate, publicationYear: 2022 }), 'the same candidate promotes once a year is known');
+});
+
+check('EC-2', 'An out-of-range interval is rejected and the subscription keeps its previous valid interval', () => {
+	assert(assignCheckInterval(6, 999) === 6, 'keeps prior 6');
+	assert(assignCheckInterval(72, 13) === 72, 'keeps prior 72');
+	assert(assignCheckInterval(12, 24) === 24, 'a valid change is still applied');
+});
+
+check('EC-3', 'A subscription type outside keyword/author/arXiv category is rejected', () => {
+	assert(!isValidSubscription({ ...validSub('keyword'), type: 'conference' as never }), 'unknown type rejected');
+	assert(!isValidSubscription({ ...validSub('keyword'), type: '' as never }), 'empty type rejected');
+});
+
+check('EC-4', 'A subscription created without an explicit interval receives the default (24h, an allowed value)', () => {
+	assert(DEFAULT_CHECK_INTERVAL_HOURS === 24, 'default interval is 24h (spec Assumption)');
+	assert((ALLOWED_CHECK_INTERVALS_HOURS as readonly number[]).includes(DEFAULT_CHECK_INTERVAL_HOURS), 'the default is itself an allowed interval');
+});
+
+skip(
+	'EC-4-apply',
+	'Actually applying the default interval when a subscription is created without one',
+	'001 exports the default constant; applying it during subscription creation is owned by collection/UI (002/008).',
+);
+
+check('EC-5', 'On first run (nothing saved), the full set of default settings is available and valid', () => {
+	assert(isValidPluginSettings(DEFAULT_PLUGIN_SETTINGS), 'defaults are a complete, valid set');
+	for (const key of ['storageLocation', 'summarizationEnabled', 'graphDisplayOptions']) {
+		assert(key in DEFAULT_PLUGIN_SETTINGS, `default set includes "${key}"`);
+	}
+});
 
 // ---- Report --------------------------------------------------------------
 
