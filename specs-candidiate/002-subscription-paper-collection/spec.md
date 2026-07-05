@@ -14,7 +14,7 @@
 
 - Q: What happens to collection while Obsidian (or the plugin) is turned off? → A: No collection runs in the background while the plugin is off — there is no external process. Instead, each subscription records the last time it was checked, and when the plugin next loads it performs a single catch-up search per enabled subscription over the window from that last-checked time up to the current time, so papers published while the plugin was off are still found. Nothing collected during the off period is fabricated or back-dated beyond what the providers actually report for that window.
 - Q: If the plugin was off for a very long time (weeks), does the catch-up window grow without bound? → A: The catch-up search covers the whole elapsed window, but is bounded by the same sequential, non-freezing processing rule as any large result set (see Edge Cases). If a provider caps how far back a single query can reach, the catch-up is limited to what the provider will return; the user is informed if the window could not be fully covered.
-- Q: What is authoritative for a collected paper — the provider's JSON or anything derived from it? → A: The provider's JSON response is parsed into the canonical Paper Record (JSON) defined in 001. That record is what every downstream feature consumes. This feature never writes Markdown; note creation is 003's job.
+- Q: What is authoritative for a collected paper — the provider's response or anything derived from it? → A: The provider's response is parsed into the canonical Paper shape defined in 001; the persistence feature (003) then stores that paper as its JSON record + Markdown note pair. The parsed paper data is what every downstream feature consumes. This feature never writes files; note/record creation is 003's job.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -87,7 +87,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **FR-004**: When the plugin loads after having been off, it MUST perform a single catch-up search per enabled subscription covering the window from that subscription's last-checked time to the current time, so papers published while the plugin was off are still found.
 - **FR-005**: No collection may run while the plugin is off; there is no background process. Collection resumes only as scheduled checks or catch-up searches once the plugin is running again.
 - **FR-006**: After any successful check or catch-up search, the subscription's last-checked time MUST be advanced to the moment searched-through, so the same window is never searched twice. It MUST NOT be advanced past a window that failed or was interrupted.
-- **FR-007**: Every collected paper MUST be parsed from the provider's JSON response into the canonical Paper Record (JSON) shape defined in 001, including title, authors, publication year, citation count, abstract, and source identifier.
+- **FR-007**: Every collected paper MUST be parsed from the provider's response into the canonical Paper shape defined in 001, including title, authors, publication year, citation count, abstract, and source identifier; persisting it as a JSON record + Markdown note is owned by 003.
 - **FR-008**: All communication with external databases (arXiv, Semantic Scholar) MUST happen only within this feature; no other feature communicates with external sources directly.
 - **FR-009**: If the same paper is discovered through multiple subscriptions or overlapping catch-up windows, it MUST be processed only once, deduplicated by its source identifier.
 - **FR-010**: Disabling a subscription MUST immediately stop any new collection caused by it, including catch-up searches on subsequent loads.
@@ -99,7 +99,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 ### Key Entities
 
 - **Subscription**: As defined in 001. This feature reads its type/value/interval/last-checked/enabled fields and updates last-checked after each check.
-- **Paper Record (JSON)**: As defined in 001. This feature produces these from provider JSON; it does not write Markdown notes.
+- **Paper / PaperCandidate**: As defined in 001. This feature parses provider responses into paper data (holding back candidates that lack a publication year, per the 001 rule); persisting each paper as a JSON record + Markdown note is owned by 003. This feature writes no files.
 - **Collection Window**: The time range a given check or catch-up search covers — from the subscription's last-checked time to the moment of the check. Not persisted as its own entity; it is derived each time from the subscription's last-checked time and the current time.
 
 ## Success Criteria *(mandatory)*
@@ -111,7 +111,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **SC-003**: No collection activity occurs while the plugin is off (0 external calls made by any background process).
 - **SC-004**: If the same paper is found through multiple subscriptions or overlapping windows, it is processed exactly once.
 - **SC-005**: Disabling a subscription results in zero further collection attributable to it, including on later loads.
-- **SC-006**: 100% of collected papers are represented as canonical Paper Records parsed from provider JSON; no other feature makes external calls.
+- **SC-006**: 100% of collected papers are represented as canonical Paper data parsed from provider responses; no other feature makes external calls.
 
 ## Assumptions
 

@@ -88,7 +88,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 
 ### Key Entities
 
-- **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 001; this feature adds summary and (conditionally) future-directions fields to the managed content via 003's synchronized pairing.
+- **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 003 (the logical Paper shape is 001); this feature adds summary and (conditionally) future-directions fields to the managed content via 003's synchronized pairing.
 - **Summarization Settings**: The on/off flag (from 001), the chosen provider, and credentials. Credentials are sensitive and handled per the project's transparent-use policy.
 
 ## Success Criteria *(mandatory)*

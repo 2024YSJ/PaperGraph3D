@@ -12,7 +12,7 @@
 
 ### Session 2026-07-04
 
-- Q: Does conversion read the Markdown notes or the JSON records? → A: It reads the canonical JSON records (the plugin's source of truth from 001/003). It does not parse note bodies. This keeps the graph immune to a user's free-form edits and matches the rule that the plugin operates on JSON.
+- Q: Does conversion read the Markdown notes or the JSON records? → A: It reads the canonical JSON records (the plugin's source of truth, owned by 003; the logical Paper shape is from 001). It does not parse note bodies. This keeps the graph immune to a user's free-form edits and matches the rule that the plugin operates on JSON.
 - Q: How are citation directions determined? → A: Each record carries its outbound references (the papers it cites). A directional connection A→B is created when record A's references include B. Inbound "cited-by" is derived by inverting these connections; it is never stored.
 - Q: What happens to a reference whose target paper is not stored in the vault? → A: The connection to a missing target is either ignored or handled separately (e.g., not drawn) rather than fabricating a node for it; conversion never fails because of a dangling reference.
 
@@ -56,7 +56,7 @@ As the developer building the on-screen display, I want to receive already-organ
 
 ### Key Entities
 
-- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs, e.g., source identifier, citation status), read from a Paper Record (JSON).
+- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs, e.g., source identifier, citation status), read from a Paper's JSON record (persistence owned by 003).
 - **Connection**: A directional edge A→B meaning paper A cites paper B, derived from A's outbound references.
 - **Graph Data**: The pair of (node list, connection list) handed to the display feature. Transient output, not persisted as its own file.
 

@@ -56,7 +56,7 @@ As a user, I know a citation count I saved a while ago may have changed, so I wa
 
 ### Key Entities
 
-- **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 001; this feature updates their citation-related managed fields via 003.
+- **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 003 (the logical Paper shape is 001); this feature updates their citation-related managed fields via 003.
 - **Refresh Request**: A transient, user-initiated action targeting one saved paper by its source identifier. Not persisted; it carries only which paper to refresh and guards against concurrent duplicates.
 
 ## Success Criteria *(mandatory)*

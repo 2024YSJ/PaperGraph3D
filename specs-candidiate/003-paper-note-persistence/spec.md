@@ -15,7 +15,7 @@
 - Q: The plugin operates on JSON but the user works in Markdown — how are the two kept consistent on disk? → A: For each stored paper, the storage folder holds a paired canonical JSON record and a user-facing Markdown note, keyed by the paper's source identifier. The JSON record is the plugin's source of truth; the Markdown note is what the user opens. Adds write both; deletes remove both; updates rewrite the JSON record and merge the note's plugin-managed region — always as one coordinated operation so the two never drift apart.
 - Q: When the plugin needs a field value, does it read the note or the JSON? → A: Always the JSON record. The Markdown note's plugin-managed region mirrors the record for the user's benefit, but the note body (and the note generally) is never parsed as authoritative plugin state. This keeps user edits from ever changing plugin behavior.
 - Q: What is the boundary the plugin may and may not modify inside a note? → A: The note has a clearly delimited plugin-managed region (mirroring the JSON record's fields) and a free-form body owned entirely by the user. Merges only rewrite the managed region; the user body is never modified or deleted.
-- Q: If the JSON record and Markdown note for a paper fall out of sync (one missing, or shared fields disagree), what happens? → A: That is an inconsistent state (defined invalid in 001). On the next operation touching that paper, the plugin reconciles by treating the JSON record as authoritative and rebuilding/repairing the note's managed region; a note with no record is reported to the user rather than silently deleted.
+- Q: If the JSON record and Markdown note for a paper fall out of sync (one missing, or shared fields disagree), what happens? → A: That is an inconsistent state (this feature defines record/note consistency and what violates it). On the next operation touching that paper, the plugin reconciles by treating the JSON record as authoritative and rebuilding/repairing the note's managed region; a note with no record is reported to the user rather than silently deleted.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -96,8 +96,8 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 
 ### Key Entities
 
-- **Paper Record (JSON)**: As defined in 001 — the canonical, plugin-operated form. This feature writes, updates, and deletes it.
-- **Paper Note (Markdown)**: As defined in 001 — the user-facing form with a plugin-managed region (mirroring the record) and a user-owned free-form body. This feature writes the managed region only.
+- **Paper Record (JSON)**: The canonical, plugin-operated persistence form of a Paper (whose logical shape is defined in 001). Carries every field the plugin needs to run without reading any Markdown; it is the source of truth. **Defined and owned by this feature** — it writes, updates, and deletes it.
+- **Paper Note (Markdown)**: The user-facing persistence form of the same Paper — a clearly delimited plugin-managed region that mirrors the record, plus a free-form body region owned entirely by the user. **Defined and owned by this feature** — it writes the managed region only, never the body.
 - **Storage Folder**: The user-designated vault folder (default from 001 settings) that is the sole location this feature may touch.
 
 ## Success Criteria *(mandatory)*
@@ -112,7 +112,7 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 
 ## Assumptions
 
-- The paired on-disk layout is a `.json` file and a `.md` file sharing a filename derived from the source identifier, both inside the storage folder; this concrete layout realizes the 001 synchronization invariant. (If the user later prefers a single JSON index instead of per-paper JSON files, that is a layout change confined to this feature and does not alter the record/note synchronization contract.)
+- The paired on-disk layout is a `.json` file and a `.md` file sharing a filename derived from the source identifier, both inside the storage folder; this concrete layout realizes this feature's record/note synchronization invariant. (If the user later prefers a single JSON index instead of per-paper JSON files, that is a layout change confined to this feature and does not alter the record/note synchronization contract.)
 - The plugin-managed region of the note is delimited so it can be rewritten wholesale without ambiguity about where the user's body begins.
 - The canonical Paper Record content arrives from collection (002) or refresh (005); this feature does not fetch from external providers.
 
