@@ -4,29 +4,44 @@
 - **Source branch**: `develop-feature/001-core-data-models`
 - **Date**: 2026-07-05
 - **`tsc --noEmit`**: PASS (src type-checks)
-- **Result**: **12 passed / 0 failed / 1 skipped**
+- **Result**: **12 passed / 0 failed / 2 skipped**
 
 The currently implemented `src/models/{subscription,paper,settings}.ts` satisfies every
-executable Acceptance Scenario and Success Criterion of this spec. The single SKIP is a
-process/documentation outcome, not code-verifiable.
+executable Acceptance Scenario and Success Criterion of this spec. Both SKIPs are things
+not verifiable at the data-model layer (a process outcome; and the deduplication mechanism
+owned by 002).
+
+This suite was strengthened beyond field-presence checks to also exercise present-but-wrong-type
+inputs, invalid collection elements (the `authors`/`references` `.every()` branches), the
+empty/`null`/string publication-year boundary, and the empty-string vs concrete-default
+asymmetry.
 
 ## Cases
 
 | id | scenario / SC | status | note |
 |----|---------------|--------|------|
-| US1.1 | Valid subscription (type/value/label/interval/last-checked/enabled) is valid | PASS | all three types accepted |
-| US1.2 | Interval outside 6/12/24/48/72 rejected, prior interval unchanged | PASS | `assignCheckInterval` keeps prior; bad interval invalid |
-| US1.3 | Subscription missing a required attribute is invalid | PASS | each field + unknown type rejected |
-| US2.1 | Paper with all attributes + known year is valid | PASS | |
-| US2.2 | Unknown publication year held back until known | PASS | `toPaper`→undefined, then promotes |
-| US2.3 | Paper missing a required attribute is invalid | PASS | each field + undefined year rejected |
-| US3.1 | New settings resolve to complete defaults | PASS | storage non-empty, summarization bool, graph options present |
-| US3.2 | Settings missing one of three groups is invalid | PASS | |
-| SC-001 | Later features definable from this spec alone | SKIP | Process/documentation outcome — not verifiable by executing code |
-| SC-002 | 100% invalid subscriptions (missing attr / bad interval) identified | PASS | field-drop + 7 bad intervals |
-| SC-003 | 100% invalid papers (missing year / attr) identified | PASS | |
-| SC-004 | 100% new settings resolve to complete defaults | PASS | |
-| SC-005 | Provider-encoded sourceId, no cross-provider collision | PASS | `isPaperSourceId` accepts/rejects; prefixes distinct |
+| US1.1 | Valid subscription (all fields) is valid | PASS | 3 types + numeric lastCheckedAt |
+| US1.2 | Interval outside 6/12/24/48/72 rejected, prior unchanged | PASS | all 5 accepted; 10/0/-6/36/24.5 keep prior |
+| US1.3 | Subscription missing/wrong-typed attribute is invalid | PASS | field-drop + wrong-type + bad/`non-string` enum |
+| US2.1 | Paper with all attributes + known year is valid | PASS | incl. empty references |
+| US2.2 | Unknown/empty year held back until real year known | PASS | undefined→held; null/string never become valid; promotion round-trip |
+| US2.3 | Paper missing/malformed attribute is invalid | PASS | field-drop + wrong-type + bad element + unknown-provider id |
+| US3.1 | New settings resolve to complete defaults | PASS | layout+colorScheme checked; defaults valid |
+| US3.2 | Settings missing/malformed group is invalid | PASS | field-drop + empty/wrong-type + partial graph options |
+| SC-001 | Later features definable from this spec alone | SKIP | Process/documentation outcome — not code-verifiable |
+| SC-002 | 100% invalid subscriptions identified | PASS | field-drop + 8 bad intervals |
+| SC-003 | 100% invalid papers identified | PASS | field-drop over all fields |
+| SC-004 | 100% new settings resolve to complete, valid defaults | PASS | each group proven load-bearing via drop |
+| SC-005 | Provider-encoded, collision-free sourceId | PASS | accept/reject + distinct prefixes |
+| SC-005-dedup | Actual deduplication by sourceId | SKIP | dedup mechanism owned by 002; not at data-model layer |
+
+## Known residual limitations (not failures)
+
+- `isValidPaper` treats `NaN` as a valid year (`typeof NaN === 'number'`, no finite check). A
+  paper built from a bad numeric parse could slip through. Not asserted here (out of this
+  suite's scope); flagged for a possible `Number.isFinite` guard in `src/models/paper.ts`.
+- `isValidSubscription` accepts an empty-string `value`/`label` (no length check), unlike
+  settings' `storageLocation`. Left as an observed, unspecified leniency rather than a failure.
 
 ## Raw test output
 
@@ -35,21 +50,23 @@ process/documentation outcome, not code-verifiable.
 [PASS] US1.2 — A check interval outside 6/12/24/48/72 is rejected and leaves the prior interval unchanged
 [PASS] US1.3 — A subscription missing a required attribute is identified as invalid
 [PASS] US2.1 — A paper with all required attributes and a known year is recognized as valid
-[PASS] US2.2 — A paper with unknown publication year is held back (toPaper → undefined) until a year is known
-[PASS] US2.3 — A paper missing a required attribute is identified as invalid
+[PASS] US2.2 — A paper with an unknown or empty publication year is held back until a real year is known
+[PASS] US2.3 — A paper missing or malformed in a required attribute is identified as invalid
 [PASS] US3.1 — Newly-loaded settings resolve to complete defaults (storage location, summarization, graph options)
-[PASS] US3.2 — Settings missing one of the three defined groups is identified as invalid
+[PASS] US3.2 — Settings missing or malformed in one of the three groups are identified as invalid
 [SKIP] SC-001 — Every later feature can define its data needs by referencing only this spec (Process/documentation outcome — not verifiable by executing code.)
 [PASS] SC-002 — 100% of subscriptions missing an attribute or using a bad interval are invalid
 [PASS] SC-003 — 100% of papers missing a year or any attribute are invalid
-[PASS] SC-004 — 100% of newly loaded settings resolve to a complete default set
-[PASS] SC-005 — Papers dedup by a provider-encoded sourceId; ids from different providers cannot collide
+[PASS] SC-004 — 100% of newly loaded settings resolve to a complete, valid default set
+[PASS] SC-005 — A paper source identifier is provider-encoded and collision-free across providers
+[SKIP] SC-005-dedup — Actual deduplication of papers by source identifier (001 only guarantees the id is collision-free; performing deduplication is owned by collection (002), so the dedup mechanism is not verifiable at the data-model layer.)
 
-Summary: 12 passed, 0 failed, 1 skipped
+Summary: 12 passed, 0 failed, 2 skipped
 ```
 
 ## Verification method
 
 Generated by `/spec-test`. Test derived from the spec's Acceptance Scenarios + Success
-Criteria, run against the real `src/models` exports via esbuild + node (the repo's
-no-test-runner convention). Report-only — no source code was modified.
+Criteria (with negative cases covering wrong types and invalid collection elements), run
+against the real `src/models` exports via esbuild + node (the repo's no-test-runner
+convention). Report-only — no source code was modified.

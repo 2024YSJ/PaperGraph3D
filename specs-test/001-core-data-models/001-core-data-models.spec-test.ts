@@ -56,8 +56,16 @@ const validPaper = (): Paper => ({
 	citationCount: 100000,
 	abstract: 'The dominant sequence transduction models…',
 	sourceId: 'arxiv:1706.03762',
-	references: [],
+	references: ['arxiv:1409.0473'],
 });
+
+// The spec's real guarantee for the hold-back rule is that a paper never
+// *becomes valid data* until it has a real year — via the two-step gate
+// (toPaper then isValidPaper), not toPaper alone.
+function becomesValidPaper(candidate: PaperCandidate): boolean {
+	const p = toPaper(candidate);
+	return p !== undefined && isValidPaper(p);
+}
 
 // ---- User Story 1: subscription shape ------------------------------------
 
@@ -68,6 +76,8 @@ check(
 		for (const t of ['keyword', 'author', 'arxivCategory']) {
 			assert(isValidSubscription(validSub(t)), `type "${t}" should be accepted`);
 		}
+		// last-checked may be an actual timestamp, not only null (never-checked).
+		assert(isValidSubscription({ ...validSub('keyword'), lastCheckedAt: 1_700_000_000_000 }), 'numeric lastCheckedAt accepted');
 	},
 );
 
@@ -75,44 +85,50 @@ check(
 	'US1.2',
 	'A check interval outside 6/12/24/48/72 is rejected and leaves the prior interval unchanged',
 	() => {
-		// assignCheckInterval keeps the prior value on a disallowed request…
-		assert(assignCheckInterval(24, 10) === 24, 'disallowed 10 must leave prior 24 unchanged');
-		assert(assignCheckInterval(24, 0) === 24, 'disallowed 0 must leave prior 24 unchanged');
-		// …and accepts an allowed one.
-		assert(assignCheckInterval(24, 48) === 48, 'allowed 48 must be accepted');
+		// Every allowed value is accepted…
+		for (const ok of [6, 12, 24, 48, 72]) {
+			assert(assignCheckInterval(24, ok) === ok, `allowed interval ${ok} must be accepted`);
+		}
+		// …and a disallowed request leaves the prior value untouched.
+		for (const bad of [10, 0, -6, 36, 24.5]) {
+			assert(assignCheckInterval(24, bad) === 24, `disallowed ${bad} must leave prior 24 unchanged`);
+		}
 		// A record carrying a disallowed interval is itself invalid.
-		assert(
-			!isValidSubscription({ ...validSub('keyword'), checkIntervalHours: 10 as never }),
-			'subscription with interval 10 must be invalid',
-		);
+		assert(!isValidSubscription({ ...validSub('keyword'), checkIntervalHours: 10 as never }), 'interval 10 must be invalid');
 	},
 );
 
 check('US1.3', 'A subscription missing a required attribute is identified as invalid', () => {
 	const base = validSub('keyword');
+	// (a) missing (undefined) field.
 	for (const key of ['type', 'value', 'label', 'checkIntervalHours', 'lastCheckedAt', 'enabled']) {
 		const copy = { ...base } as Record<string, unknown>;
 		delete copy[key];
 		assert(!isValidSubscription(copy), `missing "${key}" must be invalid`);
 	}
-	// A disallowed type is also rejected (Edge Case).
-	assert(
-		!isValidSubscription({ ...base, type: 'journal' as never }),
-		'unknown subscription type must be invalid',
-	);
+	// (b) present-but-wrong-type field — proves it type-validates, not just presence-checks.
+	assert(!isValidSubscription({ ...base, value: 123 as never }), 'numeric value must be invalid');
+	assert(!isValidSubscription({ ...base, label: 456 as never }), 'numeric label must be invalid');
+	assert(!isValidSubscription({ ...base, enabled: 'true' as never }), 'string enabled must be invalid');
+	assert(!isValidSubscription({ ...base, lastCheckedAt: 'yesterday' as never }), 'string lastCheckedAt must be invalid');
+	assert(!isValidSubscription({ ...base, checkIntervalHours: '24' as never }), 'string interval must be invalid');
+	// (c) disallowed enum value (Edge Case).
+	assert(!isValidSubscription({ ...base, type: 'journal' as never }), 'unknown subscription type must be invalid');
+	assert(!isValidSubscription({ ...base, type: 42 as never }), 'non-string type must be invalid');
 });
 
 // ---- User Story 2: paper shape + hold-back rule --------------------------
 
 check('US2.1', 'A paper with all required attributes and a known year is recognized as valid', () => {
 	assert(isValidPaper(validPaper()), 'a fully-populated paper must be valid');
+	assert(isValidPaper({ ...validPaper(), references: [] }), 'empty references is still valid');
 });
 
 check(
 	'US2.2',
-	'A paper with unknown publication year is held back (toPaper → undefined) until a year is known',
+	'A paper with an unknown or empty publication year is held back until a real year is known',
 	() => {
-		const candidate: PaperCandidate = {
+		const base: PaperCandidate = {
 			title: 'Preprint',
 			publicationYear: undefined,
 			authors: ['A'],
@@ -121,23 +137,39 @@ check(
 			sourceId: 'arxiv:2301.00001',
 			references: undefined,
 		};
-		assert(toPaper(candidate) === undefined, 'missing year must be held back (undefined)');
-		const promoted = toPaper({ ...candidate, publicationYear: 2019 });
-		assert(promoted !== undefined, 'once a year is known, promotion succeeds');
+		// Unknown year: the specific hold-back mechanism returns undefined.
+		assert(toPaper(base) === undefined, 'undefined year must be held back (toPaper → undefined)');
+		// Empty-but-not-undefined years (null, string) must also never become valid paper data.
+		assert(!becomesValidPaper({ ...base, publicationYear: null as never }), 'null year must not become a valid paper');
+		assert(!becomesValidPaper({ ...base, publicationYear: '2017' as never }), 'string year must not become a valid paper');
+		// Once a real year is known, promotion succeeds and yields a valid Paper.
+		const promoted = toPaper({ ...base, publicationYear: 2019 });
+		assert(promoted !== undefined, 'a known year promotes');
 		assert(promoted!.publicationYear === 2019, 'promoted paper carries the known year');
 		assert(isValidPaper(promoted!), 'promoted paper is a valid Paper');
 	},
 );
 
-check('US2.3', 'A paper missing a required attribute is identified as invalid', () => {
+check('US2.3', 'A paper missing or malformed in a required attribute is identified as invalid', () => {
 	const base = validPaper();
+	// (a) missing field.
 	for (const key of ['title', 'publicationYear', 'authors', 'citationCount', 'abstract', 'sourceId', 'references']) {
 		const copy = { ...base } as Record<string, unknown>;
 		delete copy[key];
 		assert(!isValidPaper(copy), `missing "${key}" must be invalid`);
 	}
-	// An empty / non-numeric publication year is invalid (FR-009).
-	assert(!isValidPaper({ ...base, publicationYear: undefined as never }), 'undefined year must be invalid');
+	// (b) present-but-wrong-type.
+	assert(!isValidPaper({ ...base, title: 123 as never }), 'numeric title invalid');
+	assert(!isValidPaper({ ...base, citationCount: '100' as never }), 'string citationCount invalid');
+	assert(!isValidPaper({ ...base, publicationYear: '2017' as never }), 'string year invalid');
+	// (c) collection fields with a bad element / non-array — exercises the .every() branches.
+	assert(!isValidPaper({ ...base, authors: 'Vaswani' as never }), 'non-array authors invalid');
+	assert(!isValidPaper({ ...base, authors: [1, 2] as never }), 'non-string author element invalid');
+	assert(!isValidPaper({ ...base, references: 'arxiv:1' as never }), 'non-array references invalid');
+	assert(!isValidPaper({ ...base, references: ['not-a-source-id'] as never }), 'malformed reference id invalid');
+	assert(!isValidPaper({ ...base, references: ['arxiv:1409.0473', 999] as never }), 'non-string reference element invalid');
+	// (d) source identifier with an unknown provider.
+	assert(!isValidPaper({ ...base, sourceId: 'unknownProvider:1' as never }), 'unknown-provider sourceId invalid');
 });
 
 // ---- User Story 3: settings shape + defaults ----------------------------
@@ -147,28 +179,31 @@ check(
 	'Newly-loaded settings resolve to complete defaults (storage location, summarization, graph options)',
 	() => {
 		assert(
-			typeof DEFAULT_PLUGIN_SETTINGS.storageLocation === 'string' &&
-				DEFAULT_PLUGIN_SETTINGS.storageLocation.length > 0,
+			typeof DEFAULT_PLUGIN_SETTINGS.storageLocation === 'string' && DEFAULT_PLUGIN_SETTINGS.storageLocation.length > 0,
 			'storageLocation default must be concrete and non-empty',
 		);
+		assert(typeof DEFAULT_PLUGIN_SETTINGS.summarizationEnabled === 'boolean', 'summarizationEnabled default must be present');
 		assert(
-			typeof DEFAULT_PLUGIN_SETTINGS.summarizationEnabled === 'boolean',
-			'summarizationEnabled default must be present',
-		);
-		assert(
-			DEFAULT_PLUGIN_SETTINGS.graphDisplayOptions != null,
-			'graphDisplayOptions default must be present',
+			typeof DEFAULT_PLUGIN_SETTINGS.graphDisplayOptions?.layout === 'string' &&
+				typeof DEFAULT_PLUGIN_SETTINGS.graphDisplayOptions?.colorScheme === 'string',
+			'graphDisplayOptions default must have layout + colorScheme',
 		);
 		assert(isValidPluginSettings(DEFAULT_PLUGIN_SETTINGS), 'the default settings must be valid');
 	},
 );
 
-check('US3.2', 'Settings missing one of the three defined groups are identified as invalid', () => {
+check('US3.2', 'Settings missing or malformed in one of the three groups are identified as invalid', () => {
+	// (a) missing group.
 	for (const key of ['storageLocation', 'summarizationEnabled', 'graphDisplayOptions']) {
 		const copy = { ...DEFAULT_PLUGIN_SETTINGS } as Record<string, unknown>;
 		delete copy[key];
 		assert(!isValidPluginSettings(copy), `missing "${key}" must be invalid`);
 	}
+	// (b) empty / wrong-type values.
+	assert(!isValidPluginSettings({ ...DEFAULT_PLUGIN_SETTINGS, storageLocation: '' }), 'empty storageLocation must be invalid (FR-011: concrete non-empty)');
+	assert(!isValidPluginSettings({ ...DEFAULT_PLUGIN_SETTINGS, storageLocation: 123 as never }), 'numeric storageLocation invalid');
+	assert(!isValidPluginSettings({ ...DEFAULT_PLUGIN_SETTINGS, summarizationEnabled: 'yes' as never }), 'string summarizationEnabled invalid');
+	assert(!isValidPluginSettings({ ...DEFAULT_PLUGIN_SETTINGS, graphDisplayOptions: { layout: 'x' } as never }), 'graphDisplayOptions missing colorScheme invalid');
 });
 
 // ---- Success Criteria ----------------------------------------------------
@@ -186,11 +221,8 @@ check('SC-002', '100% of subscriptions missing an attribute or using a bad inter
 		delete copy[key];
 		assert(!isValidSubscription(copy), `missing "${key}" must be invalid`);
 	}
-	for (const bad of [5, 7, 13, 36, 96, 0, -6]) {
-		assert(
-			!isValidSubscription({ ...base, checkIntervalHours: bad as never }),
-			`interval ${bad} must be invalid`,
-		);
+	for (const bad of [5, 7, 13, 36, 96, 0, -6, 24.5]) {
+		assert(!isValidSubscription({ ...base, checkIntervalHours: bad as never }), `interval ${bad} must be invalid`);
 	}
 });
 
@@ -203,29 +235,33 @@ check('SC-003', '100% of papers missing a year or any attribute are invalid', ()
 	}
 });
 
-check('SC-004', '100% of newly loaded settings resolve to a complete default set', () => {
+check('SC-004', '100% of newly loaded settings resolve to a complete, valid default set', () => {
 	assert(isValidPluginSettings(DEFAULT_PLUGIN_SETTINGS), 'defaults must validate');
+	// Each of the three groups is individually load-bearing: dropping any one invalidates the set.
 	for (const key of ['storageLocation', 'summarizationEnabled', 'graphDisplayOptions']) {
-		assert(key in DEFAULT_PLUGIN_SETTINGS, `default set must include "${key}"`);
+		const copy = { ...DEFAULT_PLUGIN_SETTINGS } as Record<string, unknown>;
+		delete copy[key];
+		assert(!isValidPluginSettings(copy), `default set must genuinely require "${key}"`);
 	}
 });
 
-check(
-	'SC-005',
-	'Papers dedup by a provider-encoded sourceId; ids from different providers cannot collide',
-	() => {
-		assert(isPaperSourceId('arxiv:2301.12345'), 'valid arxiv id accepted');
-		assert(isPaperSourceId('semanticScholar:649def34'), 'valid semanticScholar id accepted');
-		assert(!isPaperSourceId('foo:1'), 'unknown provider rejected');
-		assert(!isPaperSourceId('arxiv:'), 'empty local part rejected');
-		assert(!isPaperSourceId('2301.12345'), 'id without a provider prefix rejected');
-		assert(!isPaperSourceId(':x'), 'empty provider rejected');
-		// Distinct providers cannot produce the same prefix, so two providers'
-		// ids can never be equal — the dedup key is collision-free across providers.
-		const arxivProvider = 'arxiv:1706.03762'.split(':')[0];
-		const s2Provider = 'semanticScholar:1706.03762'.split(':')[0];
-		assert(arxivProvider !== s2Provider, 'provider prefixes are distinct');
-	},
+check('SC-005', 'A paper source identifier is provider-encoded and collision-free across providers', () => {
+	assert(isPaperSourceId('arxiv:2301.12345'), 'valid arxiv id accepted');
+	assert(isPaperSourceId('semanticScholar:649def34'), 'valid semanticScholar id accepted');
+	assert(!isPaperSourceId('foo:1'), 'unknown provider rejected');
+	assert(!isPaperSourceId('arxiv:'), 'empty local part rejected');
+	assert(!isPaperSourceId('2301.12345'), 'id without a provider prefix rejected');
+	assert(!isPaperSourceId(':x'), 'empty provider rejected');
+	// Distinct providers cannot share a prefix, so ids across providers can never be equal.
+	const arxivProvider = 'arxiv:1706.03762'.split(':')[0];
+	const s2Provider = 'semanticScholar:1706.03762'.split(':')[0];
+	assert(arxivProvider !== s2Provider, 'provider prefixes are distinct');
+});
+
+skip(
+	'SC-005-dedup',
+	'Actual deduplication of papers by source identifier',
+	'001 only guarantees the id is collision-free; performing deduplication is owned by collection (002), so the dedup mechanism is not verifiable at the data-model layer.',
 );
 
 // ---- Report --------------------------------------------------------------
