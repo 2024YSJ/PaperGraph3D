@@ -12,7 +12,7 @@
 
 ### Session 2026-07-04
 
-- Q: Does conversion read the Markdown notes or the JSON records? → A: It reads the canonical JSON records (the plugin's source of truth, owned by 003; the logical Paper shape is from 001). It does not parse note bodies. This keeps the graph immune to a user's free-form edits and matches the rule that the plugin operates on JSON.
+- Q: Does conversion read the Markdown notes or the JSON records? → A: It reads the canonical JSON records (the plugin's source of truth, owned by 003; the logical Paper shape is from 001). It does not parse note bodies. This keeps the graph immune to a user's free-form edits and matches the rule that the plugin operates on its internal JSON record — the plugin's normalized store, not any provider's wire format (which only 002 ever sees).
 - Q: How are citation directions determined? → A: Each record carries its outbound references (the papers it cites). A directional connection A→B is created when record A's references include B. Inbound "cited-by" is derived by inverting these connections; it is never stored.
 - Q: What happens to a reference whose target paper is not stored in the vault? → A: The connection to a missing target is either ignored or handled separately (e.g., not drawn) rather than fabricating a node for it; conversion never fails because of a dangling reference.
 

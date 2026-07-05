@@ -94,7 +94,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - **FR-005**: No collection may run while the plugin is off; there is no background process. Collection resumes only as scheduled checks or catch-up searches once the plugin is running again.
 - **FR-006**: After any successful check or catch-up search, the subscription's last-checked time MUST be advanced to the moment searched-through, so the same window is never searched twice. It MUST NOT be advanced past a window that failed or was interrupted.
 - **FR-007**: Every collected paper MUST be parsed from the provider's response into the canonical Paper shape defined in 001, including title, authors, publication year, citation count, abstract, and source identifier; persisting it as a JSON record + Markdown note is owned by 003.
-- **FR-008**: All communication with external databases (arXiv, Semantic Scholar) MUST happen only within this feature; no other feature communicates with external sources directly.
+- **FR-008**: All communication with external databases (arXiv, Semantic Scholar) MUST happen only within this feature; no other feature communicates with external sources directly. Parsing and normalizing each provider's wire format (arXiv Atom XML, Semantic Scholar JSON) into the canonical Paper shape is likewise confined here — no raw provider payload (XML or a provider's own JSON) may be persisted or handed to another feature.
 - **FR-009**: If the same paper is discovered through multiple subscriptions or overlapping catch-up windows, it MUST be processed only once, deduplicated by its source identifier.
 - **FR-010**: Disabling a subscription MUST immediately stop any new collection caused by it, including catch-up searches on subsequent loads.
 - **FR-011**: A discovered paper missing required information (e.g., a successful response with no publication year) MUST be skipped per the 001 hold-back rule rather than collected, and this MUST be distinguished from a provider-call failure.
@@ -127,6 +127,7 @@ As a user who closes Obsidian overnight or for days, I want the plugin, when I o
 - "The plugin was off" and "the plugin is loading" are observable to this feature via the plugin lifecycle owned by 008; this feature only needs the last-checked time (from 001) and the current time to compute the catch-up window.
 - Providers accept a date/time-bounded query (or an equivalent that lets results be filtered to the catch-up window); where a provider does not, the feature filters returned results to the window itself.
 - The exact retry/back-off policy and provider rate-limit handling are implementation details; this specification requires only that failures retry on the next interval/load and are surfaceable to the user.
+- Providers differ in both wire format and coverage: arXiv returns Atom XML and supplies no citation data; Semantic Scholar returns JSON and supplies citation data. This feature parses and normalizes both into the plugin's single canonical Paper shape (001). The internal representation the rest of the plugin uses — a JSON record plus a Markdown note (003) — is the plugin's own normalized schema, distinct from and never a passthrough of any provider's wire payload.
 
 ## Out of Scope
 

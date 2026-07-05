@@ -112,6 +112,7 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 
 ## Assumptions
 
+- The JSON record is the plugin's own normalized schema (a serialized canonical Paper, 001), not a provider's wire format. This feature never sees a raw provider payload — arXiv Atom XML and Semantic Scholar JSON are parsed and normalized upstream in 002. Here, both the JSON record and the Markdown note are internal, plugin-owned representations; "the plugin operates on JSON" always means this internal record, never a provider's JSON.
 - The paired on-disk layout is a `.json` file and a `.md` file sharing a filename derived from the source identifier, both inside the storage folder; this concrete layout realizes this feature's record/note synchronization invariant. (If the user later prefers a single JSON index instead of per-paper JSON files, that is a layout change confined to this feature and does not alter the record/note synchronization contract.)
 - The plugin-managed region of the note is delimited so it can be rewritten wholesale without ambiguity about where the user's body begins.
 - The canonical Paper Record content arrives from collection (002) or refresh (005); this feature does not fetch from external providers.
