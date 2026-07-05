@@ -147,6 +147,8 @@ check(
 		// Empty-but-not-undefined years (null, string) must also never become valid paper data.
 		assert(!becomesValidPaper({ ...base, publicationYear: null as never }), 'null year must not become a valid paper');
 		assert(!becomesValidPaper({ ...base, publicationYear: '2017' as never }), 'string year must not become a valid paper');
+		assert(!becomesValidPaper({ ...base, publicationYear: NaN as never }), 'NaN year must not become a valid paper');
+		assert(!becomesValidPaper({ ...base, publicationYear: Infinity as never }), 'Infinity year must not become a valid paper');
 		// Once a real year is known, promotion succeeds and yields a valid Paper.
 		const promoted = toPaper({ ...base, publicationYear: 2019 });
 		assert(promoted !== undefined, 'a known year promotes');
@@ -166,7 +168,11 @@ check('US2.3', 'A paper missing or malformed in a required attribute is identifi
 	// (b) present-but-wrong-type.
 	assert(!isValidPaper({ ...base, title: 123 as never }), 'numeric title invalid');
 	assert(!isValidPaper({ ...base, citationCount: '100' as never }), 'string citationCount invalid');
+	assert(!isValidPaper({ ...base, citationCount: NaN as never }), 'NaN citationCount invalid');
+	assert(!isValidPaper({ ...base, citationCount: -3 as never }), 'negative citationCount invalid');
 	assert(!isValidPaper({ ...base, publicationYear: '2017' as never }), 'string year invalid');
+	assert(!isValidPaper({ ...base, publicationYear: NaN as never }), 'NaN year invalid');
+	assert(!isValidPaper({ ...base, publicationYear: Infinity as never }), 'Infinity year invalid');
 	// (c) collection fields with a bad element / non-array — exercises the .every() branches.
 	assert(!isValidPaper({ ...base, authors: 'Vaswani' as never }), 'non-array authors invalid');
 	assert(!isValidPaper({ ...base, authors: [1, 2] as never }), 'non-string author element invalid');

@@ -24,8 +24,8 @@ empty-string vs concrete-default asymmetry, and the spec's Edge Cases.
 | US1.2 | Interval outside 6/12/24/48/72 rejected, prior unchanged | PASS | all 5 accepted; 10/0/-6/36/24.5 keep prior |
 | US1.3 | Subscription missing/wrong-typed attribute is invalid | PASS | field-drop + wrong-type + bad/non-string enum |
 | US2.1 | Paper with all attributes + known year is valid | PASS | incl. empty references |
-| US2.2 | Unknown/empty year held back until real year known | PASS | undefined→held; null/string never valid; promotion round-trip |
-| US2.3 | Paper missing/malformed attribute is invalid | PASS | field-drop + wrong-type + bad element + unknown-provider id |
+| US2.2 | Unknown/empty year held back until real year known | PASS | undefined/null/string/NaN/Infinity never valid; promotion round-trip |
+| US2.3 | Paper missing/malformed attribute is invalid | PASS | field-drop + wrong-type + bad element + NaN/negative citationCount + NaN/Infinity year + unknown-provider id |
 | US3.1 | New settings resolve to complete defaults | PASS | layout+colorScheme checked; defaults valid |
 | US3.2 | Settings missing/malformed group is invalid | PASS | field-drop + empty/wrong-type + partial graph options |
 | SC-001 | Later features definable from this spec alone | SKIP | Process/documentation outcome — not code-verifiable |
@@ -43,11 +43,12 @@ empty-string vs concrete-default asymmetry, and the spec's Edge Cases.
 
 ## Known residual limitations (not failures)
 
-- `isValidPaper` treats `NaN` as a valid year (`typeof NaN === 'number'`, no finite check). A
-  paper built from a bad numeric parse could slip through. Not asserted here; flagged for a
-  possible `Number.isFinite` guard in `src/models/paper.ts`.
 - `isValidSubscription` accepts an empty-string `value`/`label` (no length check), unlike
   settings' `storageLocation`. Left as an observed, unspecified leniency rather than a failure.
+
+> Previously-flagged `NaN`/`Infinity` year and `NaN`/negative citation counts are now
+> rejected by `src/models/paper.ts` (`Number.isFinite` + `>= 0` guards) and are asserted
+> under US2.2/US2.3.
 
 ## Raw test output
 
