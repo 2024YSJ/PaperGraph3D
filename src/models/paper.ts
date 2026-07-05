@@ -62,8 +62,9 @@ export function isPaperSourceId(value: string): value is PaperSourceId {
 	return (SOURCE_PROVIDERS as readonly string[]).includes(provider);
 }
 
-// A missing publicationYear means the paper is held back, not discarded: the
-// caller keeps the PaperCandidate and may call toPaper() again once a year is known.
+// A missing or non-finite publicationYear (undefined, or NaN/Infinity from a failed
+// parse) means the paper is held back, not discarded: the caller keeps the
+// PaperCandidate and may call toPaper() again once a real year is known.
 //
 // This is NOT a retry mechanism for a failed API call. A failed/incomplete API
 // response is the collection feature's concern (it re-calls). toPaper() only
@@ -85,13 +86,14 @@ export function isPaperSourceId(value: string): value is PaperSourceId {
 // via Semantic Scholar) BEFORE promoting it. publicationYear is not defaulted:
 // it is a hard requirement, so a missing year holds the paper back instead.
 export function toPaper(candidate: PaperCandidate): Paper | undefined {
-	if (candidate.publicationYear === undefined) {
+	const { publicationYear } = candidate;
+	if (publicationYear === undefined || !Number.isFinite(publicationYear)) {
 		return undefined;
 	}
 
 	return {
 		...candidate,
-		publicationYear: candidate.publicationYear,
+		publicationYear,
 		citationCount: candidate.citationCount ?? 0,
 		references: candidate.references ?? [],
 	};
@@ -106,10 +108,14 @@ export function isValidPaper(data: unknown): data is Paper {
 
 	return (
 		typeof candidate.title === 'string' &&
-		typeof candidate.publicationYear === 'number' &&
+		// A real year is a finite number — reject NaN/Infinity (e.g. from a failed
+		// parse), which `typeof === 'number'` would otherwise let through.
+		Number.isFinite(candidate.publicationYear) &&
 		Array.isArray(candidate.authors) &&
 		candidate.authors.every((author) => typeof author === 'string') &&
 		typeof candidate.citationCount === 'number' &&
+		Number.isFinite(candidate.citationCount) &&
+		candidate.citationCount >= 0 &&
 		typeof candidate.abstract === 'string' &&
 		typeof candidate.sourceId === 'string' &&
 		isPaperSourceId(candidate.sourceId) &&
