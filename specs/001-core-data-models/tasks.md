@@ -62,7 +62,7 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 **Goal**: Give any feature that collects/shows papers one fixed `Paper` type, a provider-tagged unique `sourceId`, and the "hold back" rule for papers missing a publication year.
 
-**Independent Test**: Construct sample `PaperCandidate`/`Paper` records (valid, missing-year, and missing-other-field) and confirm `toPaper()` returns a `Paper` only when `publicationYear` is present (returns `undefined` — held back, not discarded — otherwise), `isValidPaper()` accepts only fully-populated records, and `isPaperSourceId()` accepts only provider-tagged strings. No other entity or file is needed to run this test.
+**Independent Test**: Construct sample `PaperCandidate`/`Paper` records (valid, missing-year, and missing-other-field) and confirm `toPaper()` returns a `Paper` only when `publicationYear` is present and finite (returns `undefined` — held back, not discarded — otherwise, including `NaN`/`Infinity`), `isValidPaper()` accepts only fully-populated records, and `isPaperSourceId()` accepts only provider-tagged strings. No other entity or file is needed to run this test.
 
 ### Implementation for User Story 2
 

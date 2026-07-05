@@ -25,7 +25,7 @@ All `[NEEDS CLARIFICATION]` items from the spec were already resolved during `/s
 
 ## 3. Modeling the "hold back" rule for papers missing a publication year
 
-**Decision**: Two related types — `PaperCandidate` (what a collection feature has *before* validation: `publicationYear` is `number | undefined`) and `Paper` (the validated shape from the spec, where `publicationYear: number` is always present) — bridged by `function toPaper(candidate: PaperCandidate): Paper | undefined`, which returns `undefined` (i.e., "held back," not created) when the year is missing.
+**Decision**: Two related types — `PaperCandidate` (what a collection feature has *before* validation: `publicationYear` is `number | undefined`) and `Paper` (the validated shape from the spec, where `publicationYear: number` is always present) — bridged by `function toPaper(candidate: PaperCandidate): Paper | undefined`, which returns `undefined` (i.e., "held back," not created) when the year is missing or non-finite (`NaN`/`Infinity`).
 
 **Rationale**: This directly encodes `FR-009`/`FR-010`/the spec's Edge Cases entry ("held back — not created as a valid paper record — rather than being permanently discarded") as a type-level invariant: once a value has type `Paper`, its `publicationYear` is guaranteed present, so every downstream feature (note-saving, refresh, graph conversion) that consumes `Paper` never needs to re-check for a missing year. The `undefined` return (rather than throwing) matches "held back to be reconsidered later" — the caller keeps the raw candidate and can retry `toPaper()` on a later collection pass once a year becomes available, rather than the data being destroyed.
 
