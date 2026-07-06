@@ -99,6 +99,25 @@ check('candidate sourceId is arxiv-scoped', candidates[0]?.sourceId === 'arxiv:2
 check('sourceId strips the arXiv version suffix (input was v1)', candidates[0]?.sourceId === 'arxiv:2301.12345' && !candidates[0]?.sourceId.includes('v1'));
 ```
 
+### A directly-collected paper and a reference to it agree on sourceId (research.md Decision 9/13, graph edge matching for 006)
+
+```ts
+import { parseSemanticScholarPaper, toPaperSourceId } from '../src/collection/semanticScholarParser';
+
+// Simulates a Semantic Scholar response citing the SAME paper as SAMPLE_ATOM (2301.12345),
+// but with the reference's externalIds.ArXiv still carrying a version suffix, as if S2 had not stripped it.
+const s2Paper = parseSemanticScholarPaper({
+  paperId: 'other-paper',
+  citationCount: 3,
+  references: [{ externalIds: { ArXiv: '2301.12345v1' }, paperId: 's2-abc' }],
+});
+
+check(
+  "a reference's sourceId matches the directly-collected paper's sourceId byte-for-byte, despite the version suffix",
+  toPaperSourceId(s2Paper.references[0]!) === candidates[0]?.sourceId,
+);
+```
+
 ### arXiv query construction is UTC-safe and encoding-safe (research.md Decisions 18-19)
 
 ```ts

@@ -102,6 +102,39 @@ export function runCollectionPass(
 - `runCollectionPass` never throws for an individual candidate's enrichment/summarization failure — it logs/surfaces the failure and continues to the next candidate, so one bad entry cannot abort an entire batch (FR-012 applied at the per-paper level).
 - `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T019) wires stub implementations of both hooks until 003 exists.
 
+## `src/collection/arxivParser.ts` / `semanticScholarParser.ts`
+
+```ts
+import type { PaperCandidate, PaperSourceId } from '../models/paper';
+
+// types.ts (T003) — shared by both parsers, never re-implemented per-file
+export function stripArxivVersion(rawId: string): string;
+
+export function parseArxivAtom(xml: string): PaperCandidate[];
+
+export interface SemanticScholarPaper {
+  paperId: string;
+  arxivId: string | undefined;
+  citationCount: number;
+  references: SemanticScholarReference[];
+}
+
+export interface SemanticScholarReference {
+  arxivId: string | undefined;
+  semanticScholarId: string;
+}
+
+export function parseSemanticScholarPaper(body: unknown): SemanticScholarPaper;
+
+export function toPaperSourceId(reference: SemanticScholarReference): PaperSourceId;
+```
+
+**Behavior guarantees**:
+- `parseArxivAtom` builds each candidate's `sourceId` as `` `arxiv:${stripArxivVersion(rawId)}` `` from the Atom `<id>` element (research.md Decision 13).
+- `parseSemanticScholarPaper` maps a raw Semantic Scholar JSON body into `SemanticScholarPaper`; both `SemanticScholarPaper.arxivId` and every `SemanticScholarReference.arxivId` are passed through `stripArxivVersion` before being stored on these intermediate types — **never assumed to already arrive version-free from Semantic Scholar's `externalIds.ArXiv` field** (research.md Decision 9/13).
+- `toPaperSourceId(reference)` returns `` `arxiv:${reference.arxivId}` `` (already version-stripped by `parseSemanticScholarPaper`) when `reference.arxivId` is defined, otherwise `` `semanticScholar:${reference.semanticScholarId}` ``. This is the single function both `enrichment.ts` (building `EnrichmentOutcome.references`) and any future caller use — there is exactly one place this mapping happens.
+- Because `stripArxivVersion` is called by both parsers on every arXiv ID they handle, a paper's own `sourceId` (from `parseArxivAtom`) and any reference *to that paper* (via `toPaperSourceId`) are guaranteed to produce the identical string, regardless of which parser produced which — this is what graph edge matching (006, exact `sourceId` equality) depends on.
+
 ## `src/collection/enrichment.ts`
 
 ```ts

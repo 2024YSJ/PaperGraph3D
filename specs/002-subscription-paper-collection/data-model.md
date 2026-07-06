@@ -52,10 +52,12 @@ Used identically by a normal scheduled tick and a catch-up-on-load pass (researc
 
 These exist only long enough to be mapped into a `PaperCandidate` (001) — they are never persisted and never handed to another feature (FR-008).
 
+**Shared helper**: `stripArxivVersion(rawId: string): string` (defined once in `types.ts`, T003) strips a trailing `vN` suffix. Both `arxivParser.ts` and `semanticScholarParser.ts` call it — never each implement their own version-stripping — so a directly-collected paper's `sourceId` and any reference *to that same paper* arriving via Semantic Scholar enrichment always produce byte-identical `arxiv:`-scheme strings, which is what graph edge matching (006, exact `sourceId` equality) depends on.
+
 ```ts
 // arxivParser.ts — one per <entry> in the Atom feed
 interface ArxivEntry {
-  arxivId: string;        // VERSION-STRIPPED base id (e.g. "2301.12345", never "2301.12345v2"); used to build sourceId = `arxiv:${arxivId}` (research.md Decision 13)
+  arxivId: string;        // VERSION-STRIPPED base id (e.g. "2301.12345", never "2301.12345v2") via stripArxivVersion(); used to build sourceId = `arxiv:${arxivId}` (research.md Decision 13)
   title: string;
   authors: string[];
   publishedYear: number | undefined; // undefined if <published> missing/unparseable
@@ -65,18 +67,18 @@ interface ArxivEntry {
 // semanticScholarParser.ts — one per Semantic Scholar paper object
 interface SemanticScholarPaper {
   paperId: string;
-  arxivId: string | undefined;       // externalIds.ArXiv, when present
+  arxivId: string | undefined;       // externalIds.ArXiv, VERSION-STRIPPED same as ArxivEntry.arxivId, when present
   citationCount: number;
   references: SemanticScholarReference[];
 }
 
 interface SemanticScholarReference {
-  arxivId: string | undefined;
+  arxivId: string | undefined;       // VERSION-STRIPPED, same rule as above
   semanticScholarId: string;
 }
 ```
 
-**Mapping to `PaperSourceId` (001)**: an `ArxivEntry` always maps to `` `arxiv:${arxivId}` ``. A `SemanticScholarReference` maps to `` `arxiv:${arxivId}` `` when `arxivId` is present, otherwise `` `semanticScholar:${semanticScholarId}` `` (Clarification 2026-07-05, research.md Decision 9).
+**Mapping to `PaperSourceId` (001)**: an `ArxivEntry` always maps to `` `arxiv:${arxivId}` `` (version-stripped, research.md Decision 13). A `SemanticScholarReference` maps to `` `arxiv:${arxivId}` `` when `arxivId` is present, otherwise `` `semanticScholar:${semanticScholarId}` `` (Clarification 2026-07-05, research.md Decision 9) — and that `arxivId` MUST be stripped of any trailing `vN` version suffix using the exact same rule as `ArxivEntry.arxivId`, **not** assumed to already arrive version-free from Semantic Scholar's `externalIds.ArXiv` field. Without this, a directly-collected paper's version-stripped `sourceId` and a reference *to that same paper* arriving via enrichment could carry different `sourceId` strings, silently breaking graph edge matching (006) for any paper that has ever been revised.
 
 ## Enrichment
 
