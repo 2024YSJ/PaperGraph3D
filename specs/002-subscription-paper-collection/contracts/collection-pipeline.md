@@ -68,6 +68,16 @@ export interface SchedulerDeps {
 // subscriptionStore's `onRegistered` so a newly-registered subscription is checked
 // immediately (FR-028, research.md Decision 34).
 export function startScheduler(plugin: Plugin, deps: SchedulerDeps): { checkNow(subscription: Subscription): Promise<void> };
+
+// Deliberately typed on a narrowed Pick, not the full Subscription — this function reads
+// only lastCheckedAt, and quickstart.md's scenarios call it with plain { lastCheckedAt }
+// literals (never a full Subscription object). Typing the parameter as `Subscription` here
+// would make those literals fail tsc --noEmit under strict mode, breaking quickstart.md's
+// own "npm run build passes" prerequisite before any scenario could even run.
+export function computeCollectionWindow(
+  subscription: Pick<Subscription, 'lastCheckedAt'>,
+  now: number,
+): { from: number; to: number };
 ```
 
 **Behavior guarantees**:

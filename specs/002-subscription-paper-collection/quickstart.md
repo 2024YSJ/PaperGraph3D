@@ -506,6 +506,20 @@ await schedulerHandle.checkNow(checkNowDisabledSub);
 check('checkNow is a no-op for a disabled subscription', checkNowRunCheckCalls === callsAfterCatchUp + 1);
 ```
 
+### HONEST LIMITATION: SC-013's batch-chunking count is not exercised here
+
+Every `runCollectionPass` scenario above passes a stub `enrich` function (`stubEnrichNone`/
+`stubEnrichAll`) instead of the real `enrichFromSemanticScholar`/`fetchSemanticScholarBatch`
+(research.md Decision 36's DI seam exists specifically so this script never fires a live
+request). That means SC-013's actual claim — enriching N candidates issues at most
+⌈N / 500⌉ requests, chunked, never one request per paper — is never exercised by this
+script; only the *shape* of an enrichment outcome (`enriched`/`terminalAbsence`/
+`transientFailure`) and its apply-then-promote effect are verified. Confirming the chunking
+count itself requires either a live Semantic Scholar call (out of scope for this
+no-live-network script) or a mock `requestUrl`/fetch layer this repo does not have
+(no test runner is configured — see `research.md` § 1). This is a real, currently-unclosed
+coverage gap for SC-013, not a documentation inconsistency.
+
 ## Expected outcome
 
 All `PASS` lines, zero `FAIL` lines. Delete the `scratch/` directory afterward — it is a manual verification aid, not shipped code.
