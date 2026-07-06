@@ -64,6 +64,24 @@ await store.remove(sub);
 check('deleting a subscription removes it from the persisted list', saved.length === 0);
 ```
 
+### Subscription storage never clobbers sibling PluginSettings (research.md Decision 15)
+
+```ts
+// Simulates the read-modify-write adapter T019 wires in src/main.ts.
+let pluginData: { settings: { summarizationEnabled: boolean }; subscriptions: unknown[] } = {
+  settings: { summarizationEnabled: true },
+  subscriptions: [],
+};
+
+const rmwStore = createSubscriptionStore({
+  load: async () => pluginData.subscriptions as never,
+  save: async (subs) => { pluginData = { ...pluginData, subscriptions: subs }; },
+});
+
+await rmwStore.register({ type: 'keyword', value: 'test', label: 'Test' });
+check('registering a subscription does not erase sibling settings', pluginData.settings.summarizationEnabled === true);
+```
+
 ### Provider parsing (User Story 4)
 
 ```ts
@@ -71,6 +89,7 @@ const candidates = parseArxivAtom(SAMPLE_ATOM);
 check('arXiv entry parses to one candidate', candidates.length === 1);
 check('candidate has unknown citation data (never fabricated 0)', candidates[0]?.citationCount === undefined && candidates[0]?.references === undefined);
 check('candidate sourceId is arxiv-scoped', candidates[0]?.sourceId === 'arxiv:2301.12345');
+check('sourceId strips the arXiv version suffix (input was v1)', candidates[0]?.sourceId === 'arxiv:2301.12345' && !candidates[0]?.sourceId.includes('v1'));
 ```
 
 ### Promotion without enrichment (User Story 4 / Edge Cases)
@@ -163,6 +182,29 @@ await startScheduler(/* plugin stub */ {} as never, {
 
 check('a provider failure surfaces a user-facing notice', notified === true);
 check('lastCheckedAt is not advanced past a failed window', recordedThrough === undefined);
+```
+
+### A subscription is never checked twice concurrently (research.md Decision 14)
+
+```ts
+let concurrentRunCheckCalls = 0;
+let maxConcurrentRunCheckCalls = 0;
+
+const slowSub = { ...sub, lastCheckedAt: null, enabled: true };
+
+await startScheduler(/* plugin stub */ {} as never, {
+  getSubscriptions: () => [slowSub],
+  runCheck: async () => {
+    concurrentRunCheckCalls += 1;
+    maxConcurrentRunCheckCalls = Math.max(maxConcurrentRunCheckCalls, concurrentRunCheckCalls);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // simulates a slow catch-up pass
+    concurrentRunCheckCalls -= 1;
+  },
+  onSubscriptionChecked: async () => {},
+  // A second trigger (e.g. a recurring tick) fires while the first runCheck above is still pending.
+});
+
+check('the same subscription is never mid-flight in two overlapping runCheck calls', maxConcurrentRunCheckCalls === 1);
 ```
 
 ### No collection after the scheduler stops (SC-003)

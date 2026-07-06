@@ -8,7 +8,7 @@
 
 ## Summary
 
-Collect new papers from arXiv (discovery, Atom XML) and Semantic Scholar (citation enrichment only, JSON) on behalf of each registered subscription (001), on a per-subscription timer while the plugin runs, and as a single bounded catch-up search per enabled subscription when the plugin loads after being off. Every discovered response is parsed into a `PaperCandidate` (001), optionally enriched with citation data (arXiv-ID match, falling back to title+first-author), then promoted to a `Paper` only once it has a publication year — missing citation data never holds a paper back, it is promoted immediately with `citationsKnown = false` so it is never lost by advancing past the search window. This feature owns the end-to-end per-paper pipeline (enrich → optionally invoke summarization 003/004 hook → hand off to persistence 003) but implements none of those downstream steps itself, and is the *only* place in the plugin that makes an external network call.
+Collect new papers from arXiv (discovery, Atom XML) and Semantic Scholar (citation enrichment only, JSON) on behalf of each registered subscription (001), on a per-subscription timer while the plugin runs, and as a single bounded catch-up search per enabled subscription when the plugin loads after being off. Every discovered response is parsed into a `PaperCandidate` (001) with a version-stripped, stable `sourceId`, optionally enriched with citation data (arXiv-ID-only match — no title/author fallback, to eliminate false-positive matches), then promoted to a `Paper` only once it has a publication year — missing citation data never holds a paper back, it is promoted immediately with `citationsKnown = false` so it is never lost by advancing past the search window. This feature owns the end-to-end per-paper pipeline (enrich → optionally invoke summarization 003/004 hook → hand off to persistence 003) but implements none of those downstream steps itself, and is the *only* place in the plugin that makes an external network call.
 
 ## Technical Context
 
@@ -16,7 +16,7 @@ Collect new papers from arXiv (discovery, Atom XML) and Semantic Scholar (citati
 
 **Primary Dependencies**: None new for HTTP — Obsidian's `requestUrl` (from the external `obsidian` package, already a project dependency) is used for arXiv/Semantic Scholar calls instead of `fetch`/Node `http`, since it works identically on desktop and mobile and avoids CORS restrictions `fetch` hits in the Obsidian sandbox. Atom XML (arXiv) is parsed with the DOM `DOMParser`, which is available in both the desktop (Electron/Chromium) and mobile (Capacitor/WebView) Obsidian runtimes — no new XML-parsing library is introduced.
 
-**Storage**: N/A for this feature — it reads `Subscription.lastCheckedAt` (001) and writes back an updated value, but persisting the subscription list itself and writing collected papers (JSON record + Markdown note) is 003's responsibility. This feature holds only in-memory per-run state (in-flight dedupe set, retry counters).
+**Storage**: This feature persists exactly one thing — the `Subscription[]` list — through the plugin's own `loadData()`/`saveData()`, as a sibling key alongside 001's `PluginSettings` in one shared JSON object (`{ settings, subscriptions }`); every write is read-modify-write against that whole object so a subscription-list save never clobbers settings written by another part of the plugin, or vice versa. Writing collected papers (JSON record + Markdown note) is 003's responsibility. This feature otherwise holds only in-memory per-run state (in-flight dedupe set, retry counters, a per-subscription in-progress guard).
 
 **Testing**: No test runner is configured in this repo (confirmed in `CLAUDE.md`/`package.json`), consistent with 001. Correctness is verified via (a) `tsc --noEmit` strict type-checking, (b) pure-function unit coverage of the Atom XML / Semantic Scholar JSON parsers and the candidate→Paper promotion/enrichment logic using this repo's existing `spec-test` convention (stubbed provider payloads, no live network), and (c) a manual `quickstart.md` walkthrough. See `research.md` for rationale.
 
@@ -73,7 +73,7 @@ src/
     ├── semanticScholarClient.ts   # Semantic Scholar JSON query + response fetch (requestUrl), enrichment lookups
     ├── arxivParser.ts             # Atom XML -> PaperCandidate (citationCount/references left undefined)
     ├── semanticScholarParser.ts   # Semantic Scholar JSON -> citation data merged into a PaperCandidate
-    ├── enrichment.ts              # arXiv-ID-first / title+author-fallback identity matching; terminal-absence vs transient-failure classification
+    ├── enrichment.ts              # arXiv-ID-only identity matching (no title/author fallback); terminal-absence vs transient-failure classification
     ├── promotion.ts               # PaperCandidate -> Paper gate (delegates to 001's toPaper()/isValidPaper()), citationsKnown bookkeeping
     ├── dedupe.ts                  # per-run sourceId dedupe across subscriptions/overlapping windows
     ├── batchQueue.ts              # sequential, non-blocking processing of a discovered batch

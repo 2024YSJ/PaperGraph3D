@@ -17,7 +17,7 @@ interface SubscriptionStore {
 }
 ```
 
-Backed by a plain JSON-serializable array persisted through the plugin's own `loadData()`/`saveData()` (wired by 008 at load/save time; this feature only needs a `load: () => Promise<Subscription[]>` / `save: (subs: Subscription[]) => Promise<void>` pair injected at construction, so it has no direct dependency on the `Plugin` instance itself).
+Backed by a plain JSON-serializable array persisted through the plugin's own `loadData()`/`saveData()`; this feature only needs a `load: () => Promise<Subscription[]>` / `save: (subs: Subscription[]) => Promise<void>` pair injected at construction, so it has no direct dependency on the `Plugin` instance itself. Because `loadData()`/`saveData()` is a single shared JSON blob also holding 001's `PluginSettings`, the injected `load`/`save` MUST be read-modify-write adapters over `{ settings: PluginSettings; subscriptions: Subscription[] }` (research.md Decision 15) — `subscriptionStore.ts` itself only ever sees its own `Subscription[]` slice and stays unaware that `PluginSettings` exists in the same object.
 
 ## Collection Window (spec Key Entities)
 
@@ -39,7 +39,7 @@ These exist only long enough to be mapped into a `PaperCandidate` (001) — they
 ```ts
 // arxivParser.ts — one per <entry> in the Atom feed
 interface ArxivEntry {
-  arxivId: string;        // used to build sourceId = `arxiv:${arxivId}`
+  arxivId: string;        // VERSION-STRIPPED base id (e.g. "2301.12345", never "2301.12345v2"); used to build sourceId = `arxiv:${arxivId}` (research.md Decision 13)
   title: string;
   authors: string[];
   publishedYear: number | undefined; // undefined if <published> missing/unparseable
@@ -67,7 +67,7 @@ interface SemanticScholarReference {
 ```ts
 type EnrichmentOutcome =
   | { status: 'enriched'; citationCount: number; references: PaperSourceId[] }
-  | { status: 'terminalAbsence' }   // positive "no such paper" or unresolved identity match — not retried by this feature
+  | { status: 'terminalAbsence' }   // arXiv ID has no Semantic Scholar record (404) — not retried by this feature
   | { status: 'transientFailure' }; // exhausted bounded retries this pass — not retried further by this feature
 
 function enrichFromSemanticScholar(
@@ -113,10 +113,11 @@ Injected, not imported — `pipeline.ts` calls exactly these two hooks in order 
 interface ScheduledCheckState {
   // No new persisted fields — reads/writes only Subscription.lastCheckedAt (001).
   // "Due" for subscription s at time now: s.enabled && now >= (s.lastCheckedAt ?? -Infinity) + s.checkIntervalHours * 3_600_000
+  inFlight: Set<Subscription>; // in-memory only; subscriptions whose runCheck has not yet settled (research.md Decision 14)
 }
 ```
 
-The scheduler introduces no new persisted entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time.
+The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently.
 
 ## Cross-entity notes
 

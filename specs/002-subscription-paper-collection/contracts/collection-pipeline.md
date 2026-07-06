@@ -10,6 +10,10 @@ import type { Subscription, SubscriptionType, CheckIntervalHours } from '../mode
 export interface SubscriptionStoreDeps {
   load: () => Promise<Subscription[]>;
   save: (subscriptions: Subscription[]) => Promise<void>;
+  // The caller (src/main.ts, T019) MUST implement `load`/`save` as a read-modify-write
+  // against the plugin's single persisted object (`{ settings: PluginSettings; subscriptions: Subscription[] }`,
+  // research.md Decision 15) — `save` must read the current whole object, replace only
+  // `.subscriptions`, and write the whole object back, never overwrite it wholesale.
 }
 
 export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
@@ -50,6 +54,7 @@ export function startScheduler(plugin: Plugin, deps: SchedulerDeps): void;
 - `startScheduler` registers exactly one recurring interval via `plugin.registerInterval(...)` (constitution Principle II) — it never calls the global `setInterval` directly, and requires no separate `stop()` call; `onunload` cleanup is automatic.
 - On the plugin's first load after `startScheduler` runs, it performs exactly one catch-up pass: for every subscription where `enabled === true`, `runCheck` is invoked once with `window.from = subscription.lastCheckedAt ?? (now - 24 * 3_600_000)` and `window.to = now` (FR-004, Clarification 2026-07-05).
 - On every subsequent recurring tick, `runCheck` is invoked for exactly the subscriptions that are both `enabled` and due (`now >= (lastCheckedAt ?? -Infinity) + checkIntervalHours * 3_600_000`) (FR-003).
+- A subscription already has a `runCheck` in flight (from either the catch-up pass or a prior tick that hasn't settled yet) is never passed to `runCheck` again until the in-flight call settles (research.md Decision 14) — this applies across both the catch-up pass and every recurring tick, not just within one of them.
 - `onSubscriptionChecked` is called if and only if `runCheck` resolved without throwing, and is never called with a `checkedThrough` value greater than the `window.to` actually passed to `runCheck` (FR-006) — a thrown/rejected `runCheck` leaves the subscription's checked-through time untouched.
 - A disabled subscription is never passed to `runCheck`, on any tick or on the catch-up pass (FR-010).
 - When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) before moving on to the next subscription; the failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When a catch-up/tick's provider response reports `truncated: true`, `onFailure(subscription, 'truncated')` is called instead (FR-014) — these are the two distinct notice reasons T016/T018 implement.
@@ -93,8 +98,8 @@ export function enrichFromSemanticScholar(candidate: PaperCandidate): Promise<En
 ```
 
 **Behavior guarantees**:
-- Identity matching tries an arXiv-ID lookup first; only on no match does it fall back to a title + first-author match (Clarification 2026-07-05). A candidate whose `sourceId` provider is not `'arxiv'` is not a supported input for this function (arXiv is this feature's sole discovery provider; Semantic Scholar enrichment always starts from an arXiv-sourced candidate).
-- `'terminalAbsence'` is returned only for a positive "no such paper" response or an unresolved identity match — never for a network/timeout/5xx/rate-limit error, which instead yields at most 3 attempts before returning `'transientFailure'` (FR-018).
+- Identity matching is **arXiv-ID only** (Clarification 2026-07-06, superseding the 2026-07-05 answer) — there is no title/author fallback, to eliminate the risk of a false-positive match silently attaching the wrong paper's citation data. A candidate whose `sourceId` provider is not `'arxiv'` is not a supported input for this function (arXiv is this feature's sole discovery provider; Semantic Scholar enrichment always starts from an arXiv-sourced candidate).
+- `'terminalAbsence'` is returned only for a positive "no such paper" (`404`) response — never for a network/timeout/5xx/rate-limit error, which instead yields at most 3 attempts before returning `'transientFailure'` (FR-018).
 - Neither `'terminalAbsence'` nor `'transientFailure'` throws — both are normal return values the caller (`pipeline.ts`, via `promotion.ts`) treats identically for promotion purposes (`citationsKnown = false`).
 
 ## `src/collection/promotion.ts`
@@ -110,7 +115,7 @@ export function promote(candidate: PaperCandidate): Paper | undefined;
 ## `src/collection/arxivClient.ts` / `semanticScholarClient.ts`
 
 ```ts
-const ARXIV_PAGE_SIZE = 100;        // max_results per request (research.md Decision 12)
+const ARXIV_PAGE_SIZE = 100;        // max_results per request (research.md Decision 11)
 const ARXIV_MAX_PAGES = 10;         // safety cap: 1,000 entries per subscription per check
 const ARXIV_INTER_PAGE_DELAY_MS = 3_000; // arXiv's own requested rate-limit spacing
 
@@ -120,13 +125,13 @@ export function queryArxiv(
 ): Promise<{ entries: unknown[]; truncated: boolean }>; // entries are raw Atom <entry> DOM nodes, consumed only by arxivParser.ts
 
 export function fetchSemanticScholarPaper(
-  identity: { arxivId: string } | { title: string; firstAuthor: string },
+  arxivId: string,
 ): Promise<{ status: 200; body: unknown } | { status: 404 } | { status: 429 } | { status: 'networkError' }>;
-// body (when status 200) is raw JSON, consumed only by semanticScholarParser.ts
+// body (when status 200) is raw JSON, consumed only by semanticScholarParser.ts. arXiv-ID-only lookup (Clarification 2026-07-06) — no title/author search form.
 ```
 
 **Behavior guarantees**:
-- `queryArxiv` builds a `search_query` combining the subscription's type-specific clause (`all:"<value>"` / `au:"<value>"` / `cat:<value>`) with `` AND submittedDate:[<window.from> TO <window.to>] `` (arXiv's date-range syntax; research.md Decision 12), and pages internally with `start`/`max_results=ARXIV_PAGE_SIZE` until a page returns fewer than `ARXIV_PAGE_SIZE` entries (fully covered) or `ARXIV_MAX_PAGES` is reached, inserting `ARXIV_INTER_PAGE_DELAY_MS` between successive page requests.
+- `queryArxiv` builds a `search_query` combining the subscription's type-specific clause (`all:"<value>"` / `au:"<value>"` / `cat:<value>`) with `` AND submittedDate:[<window.from> TO <window.to>] `` (arXiv's date-range syntax; research.md Decision 11), and pages internally with `start`/`max_results=ARXIV_PAGE_SIZE` until a page returns fewer than `ARXIV_PAGE_SIZE` entries (fully covered) or `ARXIV_MAX_PAGES` is reached, inserting `ARXIV_INTER_PAGE_DELAY_MS` between successive page requests.
 - `truncated: true` is returned exactly when the `ARXIV_MAX_PAGES` cap was hit before the window was fully covered — this is this feature's own self-imposed limit (per arXiv's own guidance against >1,000-result queries), not a limit arXiv itself documents on how far back a query can reach. The caller surfaces `truncated: true` to the user (FR-014) rather than silently accepting a partially-covered window as complete.
-- `fetchSemanticScholarPaper`'s arXiv-ID-first form calls `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds`; its title+first-author fallback form calls `GET /graph/v1/paper/search?query=<title>&fields=title,authors,externalIds` (relevance search). A `404` response and a `429`/network-error response are returned as distinct, typed outcomes — never thrown — so `enrichment.ts` can map `404` to `EnrichmentOutcome.status: 'terminalAbsence'` and `429`/`'networkError'` to a bounded transient retry (research.md Decision 13), without needing to parse an HTTP status out of a caught exception.
+- `fetchSemanticScholarPaper` calls exactly one endpoint, `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds` — there is no title/author search form (research.md Decision 12). A `404` response and a `429`/network-error response are returned as distinct, typed outcomes — never thrown — so `enrichment.ts` can map `404` to `EnrichmentOutcome.status: 'terminalAbsence'` and `429`/`'networkError'` to a bounded transient retry, without needing to parse an HTTP status out of a caught exception.
 - The raw `entries`/`body` value returned here MUST NOT cross out of `src/collection/` — only `arxivParser.ts`/`semanticScholarParser.ts` may consume it, and only a mapped `PaperCandidate`/enrichment field may leave this directory (FR-008).
