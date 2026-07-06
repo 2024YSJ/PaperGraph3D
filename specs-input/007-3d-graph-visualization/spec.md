@@ -46,7 +46,7 @@ As a user, I want to hover a node for its summary and citation info, click it to
 
 1. **Given** a node, **When** the user hovers it, **Then** a panel appears containing that paper's summary and citation information.
 2. **Given** a node, **When** the user clicks it, **Then** that paper's Markdown note opens.
-3. **Given** papers that nobody has cited yet, **When** the graph is displayed, **Then** they are visually distinguished from other nodes.
+3. **Given** papers confirmed as uncited (`citationsKnown = true`, `citationCount = 0`), **When** the graph is displayed, **Then** they are visually distinguished from other nodes; **given** a paper whose citation status is unconfirmed (`citationsKnown = false`), **When** the graph is displayed, **Then** it is shown neither as cited nor as confirmed-uncited.
 
 ---
 
@@ -93,6 +93,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - The user must be informed when a search returns no results.
 - If a hovered paper has no summary (feature 004 off or fell back to abstract), the panel shows the abstract/citation info it does have rather than an empty panel.
 - Read/unread is a display state; where it is persisted (an extension field on the record per 001 FR-016) must keep the JSON/Markdown pairing consistent through 003.
+- A paper whose citation status is unconfirmed (`citationsKnown = false`, e.g. enrichment failed or hasn't happened yet) is never shown with the confirmed-uncited styling, even though its stored count reads 0 — it gets its own neutral/unknown treatment instead, so an unenriched paper is never mistaken for a genuinely uncited one.
 
 ## Requirements *(mandatory)*
 
@@ -102,7 +103,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-002**: The user MUST be able to rotate, zoom, and pan to explore the graph, and exploration MUST remain responsive even with a large number of papers.
 - **FR-003**: Directional citation connections MUST be drawn between papers as provided by the graph data (006).
 - **FR-004**: Hovering a node MUST bring up a panel containing that paper's summary and citation information (falling back to the abstract when no summary exists).
-- **FR-005**: Papers that nobody has cited yet MUST be visually distinguished from other nodes.
+- **FR-005**: Papers confirmed as uncited (`citationsKnown === true` and `citationCount === 0`, per 001/002 FR-018 and the `citationsKnown` field 006 carries onto each node — never `citationCount === 0` alone) MUST be visually distinguished from other nodes. A paper whose citation status is not yet confirmed (`citationsKnown === false`) MUST NOT be shown with the uncited styling — it is visually distinct from both the cited and confirmed-uncited states.
 - **FR-006**: Clicking a node MUST open that paper's Markdown note.
 - **FR-007**: Right-clicking a node MUST offer exactly six actions: open note, refresh this paper, copy source link, copy title, toggle read/unread, remove from graph. Each MUST produce an immediately observable result.
 - **FR-008**: "Refresh this paper" MUST run through the manual-refresh feature (005); "remove from graph", when it deletes, MUST run through the coordinated record+note delete in 003.
@@ -128,12 +129,13 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **SC-004**: Each right-click action produces an immediately observable result (note opens, clipboard copied, read state toggles, node disappears, refresh reflected).
 - **SC-005**: With zero papers, a message is shown rather than a blank screen.
 - **SC-006**: Any deleting "remove" action is confirmed before it irreversibly deletes the record+note pairing.
+- **SC-007**: A node is shown with the uncited styling if and only if its `citationsKnown` flag is `true` and its citation count is 0; a node with `citationsKnown = false` never receives that styling regardless of its stored count.
 
 ## Assumptions
 
 - Graph data (nodes + connections) is supplied by 006; this feature does not read stored files itself.
 - Read/unread state is stored as an extension field on the paper record (001 FR-016) and kept consistent across the JSON/Markdown pairing by 003.
-- The uncited visual distinction reads the record's citation count (0 = uncited). Its accuracy depends on collection (002) having enriched the paper's citation data before promotion (002 FR-016); an un-enriched paper reads 0 and is shown as uncited until a manual refresh (005) updates it.
+- The uncited visual distinction reads the record's `citationsKnown` flag together with its citation count (001/002 FR-018), supplied on each node by graph conversion (006 FR-002a) specifically for this purpose — a node is shown as uncited only when `citationsKnown === true` and `citationCount === 0`, never from the count alone. Collection (002) attempting enrichment before promotion when helpful (002 FR-016) raises the odds a paper's status is already confirmed by display time, but does not guarantee it: enrichment itself can fail (unreachable provider, or no record yet for that paper — 002 FR-018), in which case the paper is still promoted immediately with `citationsKnown = false`. Such an unenriched paper (count 0, `citationsKnown = false`) MUST NOT be shown as uncited — it is visually distinct from both "uncited" and "cited" (e.g. a neutral/unknown styling) until a later enrichment or manual refresh (005) sets `citationsKnown = true`.
 - The 3D rendering technology is an implementation choice constrained by the project's mobile-compatibility and platform-compliance rules; this spec fixes behavior, not the rendering library.
 
 ## Open Questions

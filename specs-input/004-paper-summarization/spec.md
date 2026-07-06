@@ -40,12 +40,13 @@ As a user, I want the most recent papers that nobody has cited yet to also come 
 
 **Why this priority**: A refinement of the summary feature; only meaningful once summaries exist.
 
-**Independent Test**: With the feature on, persist one paper with zero citations and one with a positive citation count, and confirm the uncited one receives both a summary and a future-directions description while the cited one receives only a summary.
+**Independent Test**: With the feature on, persist one paper with `citationsKnown = true`/zero citations, one with a positive citation count, and one with `citationsKnown = false`/zero citations (unenriched), and confirm only the confirmed-uncited paper receives both a summary and a future-directions description while the cited paper and the unenriched paper each receive only a summary.
 
 **Acceptance Scenarios**:
 
-1. **Given** the feature is on, **When** an uncited paper (no inbound citations) is persisted, **Then** both a summary and a future-directions description are added.
+1. **Given** the feature is on, **When** a confirmed-uncited paper (`citationsKnown = true`, `citationCount = 0`) is persisted, **Then** both a summary and a future-directions description are added.
 2. **Given** the feature is on, **When** an already-cited paper is persisted, **Then** only a summary is added, with no future-directions description.
+3. **Given** the feature is on, **When** a paper with `citationsKnown = false` (citation status not yet confirmed, whatever its count) is persisted, **Then** only a summary is added — it does not qualify as uncited merely because its count reads 0.
 
 ---
 
@@ -70,7 +71,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 - If credentials are entered incorrectly, the user is informed rather than left with silent failures.
 - If the generated summary is too short or empty, it falls back to the original abstract.
 - If the feature is turned off while a generation is in flight, the in-flight result is discarded and the note is completed from the abstract; no other feature stops working because this one is off. This feature has no polling or cancellation mechanism of its own — see the Assumptions note on FR-009 for who actually implements this.
-- Whether a paper is "uncited" is read from its canonical record's citation count (0 = uncited). Because collection (002) collapses an un-enriched paper's unknown citation count to 0 on promotion, 002 enriches before promotion when this feature is on (see 002 FR-016), so a 0 seen here means "confirmed uncited". If citation data is genuinely unavailable, the paper is treated as not qualifying for future-directions text (summary only).
+- Whether a paper is "uncited" is read from its canonical record's `citationCount` **together with** its `citationsKnown` flag (001/002 FR-018) — a paper qualifies as uncited only when `citationsKnown === true` and `citationCount === 0`. A count of 0 with `citationsKnown === false` is NOT confirmed-uncited; it means enrichment was never obtained or failed (002 FR-018 explicitly promotes such a paper immediately rather than holding it back, even when this feature is on and 002 attempted enrichment first per FR-016's SHOULD — enrichment can still fail: the provider is unreachable, or has no record for that paper yet). Such a paper is treated as not qualifying for future-directions text (summary only) until a later enrichment or manual refresh (005) sets `citationsKnown = true`.
 
 ## Requirements *(mandatory)*
 
@@ -79,7 +80,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 - **FR-001**: The user MUST be able to turn this feature on or off in settings; it is off by default (per 001).
 - **FR-002**: When the feature is off, paper notes MUST still be created normally using only the original abstract, and no summarization provider may be contacted.
 - **FR-003**: When the feature is on, a generated summary MUST be added to the paper's canonical JSON record and mirrored into the Markdown note's plugin-managed region (via the 003 pairing) — never into the user's free-form body.
-- **FR-004**: For a paper that nobody has cited yet, a future-directions description MUST be added in addition to the summary; already-cited papers receive only the summary.
+- **FR-004**: For a paper that nobody has cited yet — `citationsKnown === true` and `citationCount === 0` (001/002 FR-018), never merely `citationCount === 0` on its own, since a count of 0 with `citationsKnown === false` means citation data is unconfirmed, not confirmed-zero — a future-directions description MUST be added in addition to the summary; already-cited papers, and papers whose citation status is not yet confirmed, receive only the summary.
 - **FR-005**: No other feature may stop working because this feature is off; summarization is strictly additive to the collect-and-save pipeline.
 - **FR-006**: The user MUST be able to specify which provider generates summaries and supply any required credentials in settings.
 - **FR-007**: If generation fails, times out, or returns text that is empty or too short, the feature MUST fall back to the original abstract and still complete note/record creation.
@@ -96,13 +97,13 @@ As a user, I want to choose which provider generates summaries and enter the req
 ### Measurable Outcomes
 
 - **SC-001**: With the feature off, 100% of new paper notes are still created and contain the abstract, with zero calls to any summarization provider.
-- **SC-002**: With the feature on, uncited papers receive a future-directions description while already-cited papers receive only a summary.
+- **SC-002**: With the feature on, only confirmed-uncited papers (`citationsKnown = true`, `citationCount = 0`) receive a future-directions description; already-cited papers and papers whose citation status is unconfirmed (`citationsKnown = false`) each receive only a summary.
 - **SC-003**: Every generation failure results in an abstract fallback and a successfully saved paper — zero papers fail to save because summarization failed.
 - **SC-004**: Generated text appears only in the plugin-managed region; zero user-written body content is altered by this feature.
 
 ## Assumptions
 
-- Citation status ("uncited" = citation count 0) is derived from the paper's canonical record, populated by collection (002) or refresh (005). Its reliability depends on 002 enriching the paper before promotion; per 002 FR-016, when this feature is on, enrichment precedes promotion so a 0 is a confirmed count, not an un-enriched placeholder.
+- Citation status ("uncited" = `citationsKnown === true` and `citationCount === 0`, never `citationCount === 0` alone) is derived from the paper's canonical record, populated by collection (002) or refresh (005). 002 attempting enrichment before promotion when this feature is on (002 FR-016) raises the odds a paper's citation status is already confirmed by the time this feature runs, but does not guarantee it — enrichment itself can fail (002 FR-018: unreachable provider, or no record yet for that paper), in which case the paper is still promoted immediately with `citationsKnown = false`. `citationsKnown` is therefore the only reliable signal this feature reads for uncited-status eligibility, not the count by itself.
 - This feature does not self-trigger: the collection pipeline (002) invokes it (when enabled) *before* a paper is persisted, and its generated text is handed to 003 as part of a single persist. It is the only place summarization calls are made, analogous to how 002 is the only place collection calls are made.
 - **FR-009's enable/disable gate and in-flight discard are implemented by the caller, not by this feature.** Because this feature is only ever invoked synchronously by 002 (it has no background poller, timer, or cancellation token of its own), it cannot by itself detect a mid-flight settings change. 002 satisfies FR-009 on this feature's behalf by reading `summarizationEnabled` and the provider credentials live (via getter functions) both immediately before calling this feature and again immediately after it resolves, discarding the result if the setting flipped off in between (002 `specs/002-subscription-paper-collection/spec.md` FR-021, `research.md` Decision 26). Any other future caller of this feature (e.g. 005's manual refresh) must implement the same live-read-and-discard pattern itself.
 
