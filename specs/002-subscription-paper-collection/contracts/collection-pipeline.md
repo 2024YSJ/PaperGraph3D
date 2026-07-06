@@ -10,7 +10,7 @@ import type { Subscription, SubscriptionType, CheckIntervalHours } from '../mode
 export interface SubscriptionStoreDeps {
   load: () => Promise<Subscription[]>;
   save: (subscriptions: Subscription[]) => Promise<void>;
-  // The caller (src/main.ts, T019) MUST implement `load`/`save` as a read-modify-write
+  // The caller (src/main.ts, T020) MUST implement `load`/`save` as a read-modify-write
   // against the plugin's single persisted object (`{ settings: PluginSettings; subscriptions: Subscription[] }`,
   // research.md Decision 15) — `save` must read the current whole object, replace only
   // `.subscriptions`, and write the whole object back, never overwrite it wholesale.
@@ -44,8 +44,8 @@ const SCHEDULER_TICK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (research.md De
 
 export interface SchedulerDeps {
   getSubscriptions: () => Subscription[];
-  onSubscriptionChecked: (subscriptionId: Subscription, checkedThrough: number) => Promise<void>;
-  runCheck: (subscription: Subscription, window: { from: number; to: number }) => Promise<void>;
+  onSubscriptionChecked: (subscription: Subscription, checkedThrough: number) => Promise<void>;
+  runCheck: (subscription: Subscription, window: { from: number; to: number }) => Promise<{ truncated: boolean }>;
   onFailure?: (subscription: Subscription, reason: 'unreachable' | 'truncated') => void; // user-facing notice hook (FR-012/FR-014)
   now?: () => number; // defaults to Date.now; injectable for tests
 }
@@ -60,7 +60,7 @@ export function startScheduler(plugin: Plugin, deps: SchedulerDeps): void;
 - A subscription whose `` `${type}:${value}` `` key already has a `runCheck` in flight (from either the catch-up pass or a prior tick that hasn't settled yet) is never passed to `runCheck` again until the in-flight call settles (research.md Decision 14) — this applies across both the catch-up pass and every recurring tick, not just within one of them. The guard is keyed by `type`+`value`, never by `Subscription` object identity, since `getSubscriptions()` may return fresh objects on each call; this key is guaranteed collision-free because `subscriptionStore.register` (contracts § subscriptionStore.ts) never allows two subscriptions to share a `(type, value)` pair.
 - `onSubscriptionChecked` is called if and only if `runCheck` resolved without throwing, and is never called with a `checkedThrough` value greater than the `window.to` actually passed to `runCheck` (FR-006) — a thrown/rejected `runCheck` leaves the subscription's checked-through time untouched. This applies identically whether the subscription was still `enabled` at the moment `runCheck` settled or was disabled while the check was in flight — an in-flight check is never aborted by a disable, and its `lastCheckedAt` update still applies on success (FR-010, Clarification 2026-07-06); only *starting* a new `runCheck` is what a disable prevents.
 - A disabled subscription is never *newly* passed to `runCheck`, on any tick or on the catch-up pass (FR-010) — this only prevents starting new checks, not completing an already-started one (see previous bullet).
-- When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) before moving on to the next subscription; the failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When a catch-up/tick's provider response reports `truncated: true`, `onFailure(subscription, 'truncated')` is called instead (FR-014) — these are the two distinct notice reasons T016 implements, each shown via Obsidian's `Notice` API (research.md Decision 16), not a custom modal or status-bar item. Because the catch-up pass and a regular tick both invoke the same `runCheck`/`onFailure` wiring (no separate implementation per call site — research.md Decision 5), the truncated-window notice fires identically regardless of which one produced it; T018 only verifies this shared behavior surfaces correctly during catch-up, it does not re-implement it.
+- When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) before moving on to the next subscription; the failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When `runCheck` resolves with `{ truncated: true }` — surfaced this way specifically so the scheduler can react to it without inspecting internal state — `onFailure(subscription, 'truncated')` is called instead, but `lastCheckedAt` still advances normally since a truncated query is not a failed one, just an incompletely-covered one (FR-014). These are the two distinct notice reasons T017 implements, each shown via Obsidian's `Notice` API (research.md Decision 16), not a custom modal or status-bar item. Because the catch-up pass and a regular tick both invoke the same `runCheck`/`onFailure` wiring (no separate implementation per call site — research.md Decision 5), the truncated-window notice fires identically regardless of which one produced it; T019 only verifies this shared behavior surfaces correctly during catch-up, it does not re-implement it.
 - The catch-up pass (bullet above) runs synchronously as part of `startScheduler`'s own execution during `onload` — no artificial startup delay is introduced before it begins (research.md Decision 17).
 
 ## `src/collection/pipeline.ts`
@@ -90,17 +90,31 @@ export function runCollectionPass(
   candidates: AsyncIterable<PaperCandidate>,
   hooks: PipelineHooks,
   summarizationEnabled: boolean,
+  semanticScholarApiKey: string | undefined, // threaded straight through to every enrichFromSemanticScholar call (FR-020)
 ): Promise<void>;
+
+// The composition point: turns "a subscription and a window" into candidates and runs them
+// through runCollectionPass. This is the concrete function startScheduler's `runCheck`
+// dependency (contracts § scheduler.ts) wraps — no other task builds this orchestration.
+export function runSubscriptionCheck(
+  subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
+  window: { from: number; to: number },
+  hooks: PipelineHooks,
+  summarizationEnabled: boolean,
+  semanticScholarApiKey: string | undefined,
+): Promise<{ truncated: boolean }>;
 ```
 
 **Behavior guarantees**:
 - Candidates are consumed and handed to enrichment/promotion/persistence **one at a time**, never concurrently (FR-013) — `runCollectionPass` never calls `hooks.persist` for a second candidate before the previous candidate's full pipeline (enrich → optional summarize → persist) has settled.
 - A candidate whose `sourceId` is already `seen` in this run, or for which `hooks.alreadyPersisted` resolves `true`, is skipped before enrichment or summarization runs (FR-009) — no wasted network/LLM calls on a known duplicate.
+- Enrichment (`enrichFromSemanticScholar`, contracts § enrichment.ts) is called internally by `runCollectionPass` for each non-duplicate candidate — it is not a `PipelineHooks` field. `runCollectionPass`'s `semanticScholarApiKey` parameter is passed straight through to every such call (FR-020); this is the only path an API key reaches enrichment from this function.
 - A candidate that fails `promote` (missing/non-finite publication year) is skipped without calling any hook (FR-011) — this is not treated as an error.
 - `hooks.summarize` receives only `{ title, abstract, citationCount, citationsKnown }` — never the full `Paper` (never `sourceId`/`references`/`authors`/`publicationYear`) — so an external summarization provider (004) is handed no more data than it needs to decide summary vs. summary+future-directions content (research.md Decision 22).
 - `hooks.summarize` is only invoked when `summarizationEnabled` is `true`; when it is `false`, absent, rejects, or its promise never settles within an internal timeout, `hooks.persist` is still called with `summary` omitted (`undefined`) — this is what "004's abstract fallback applies and the paper is still saved" (FR-017) means at the call level. **`persist`'s `summary` argument is the only path 004's generated text ever reaches 003 through** — there is no other hook or side channel; a `summarize` result that isn't passed to the following `persist` call is a bug, not an accepted "fire and forget."
 - `runCollectionPass` never throws for an individual candidate's enrichment/summarization failure — it logs/surfaces the failure and continues to the next candidate, so one bad entry cannot abort an entire batch (FR-012 applied at the per-paper level).
-- `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T019) wires stub implementations of both hooks until 003 exists.
+- `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T020) wires stub implementations of both hooks until 003 exists.
+- `runSubscriptionCheck` is the concrete composition this feature ships as `startScheduler`'s (contracts § scheduler.ts) `runCheck` dependency: it calls `queryArxiv(subscription, window)` (contracts § arxivClient.ts), maps each raw Atom entry through `parseArxivAtom` (contracts § arxivParser.ts) into an `AsyncIterable<PaperCandidate>`, and hands that to `runCollectionPass` — then returns `{ truncated }` exactly as `queryArxiv` reported it, so `startScheduler` (research.md Decision 5) can surface the FR-014 notice without either function needing to know about the other's internals (research.md Decision 24).
 
 ## `src/collection/arxivParser.ts` / `semanticScholarParser.ts`
 
@@ -138,10 +152,10 @@ export function toPaperSourceId(reference: SemanticScholarReference): PaperSourc
 ## `src/collection/enrichment.ts`
 
 ```ts
-import type { PaperCandidate } from '../models/paper';
+import type { PaperCandidate, PaperSourceId } from '../models/paper';
 
 export type EnrichmentOutcome =
-  | { status: 'enriched'; citationCount: number; references: PaperCandidate['references'] & {} }
+  | { status: 'enriched'; citationCount: number; references: PaperSourceId[] }
   | { status: 'terminalAbsence' }
   | { status: 'transientFailure' };
 

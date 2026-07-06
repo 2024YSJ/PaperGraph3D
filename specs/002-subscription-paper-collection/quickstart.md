@@ -74,7 +74,7 @@ check('deleting subscriptions removes them from the persisted list', saved.lengt
 ### Subscription storage never clobbers sibling PluginSettings (research.md Decision 15)
 
 ```ts
-// Simulates the read-modify-write adapter T019 wires in src/main.ts.
+// Simulates the read-modify-write adapter T020 wires in src/main.ts.
 let pluginData: { settings: { summarizationEnabled: boolean }; subscriptions: unknown[] } = {
   settings: { summarizationEnabled: true },
   subscriptions: [],
@@ -168,7 +168,7 @@ async function* twice(): AsyncIterable<PaperCandidate> {
 await runCollectionPass(twice(), {
   persist: async (_paper: Paper) => { persistedCount += 1; },
   alreadyPersisted: async () => false,
-}, false);
+}, false, undefined);
 
 check('duplicate sourceId processed only once', persistedCount === 1);
 ```
@@ -199,7 +199,7 @@ await runCollectionPass(one(), {
   summarize: async () => { throw new Error('LLM timeout'); },
   persist: async (paper: Paper, summary) => { persisted = paper; persistedSummary = summary; },
   alreadyPersisted: async () => false,
-}, true);
+}, true, undefined);
 
 check('paper is still persisted after a summarization failure', persisted !== undefined);
 check('a failed summarization reaches persist() as undefined, not silently omitted from the call', persistedSummary === undefined);
@@ -216,7 +216,7 @@ await runCollectionPass(one(), {
   },
   persist: async (_paper: Paper, summary) => { receivedSummary = summary; },
   alreadyPersisted: async () => false,
-}, true);
+}, true, undefined);
 
 check('summarize() receives only the four narrowed fields, never the full Paper', !summarizeReceivedFullPaperFields);
 check("a successful summarize() result is passed through to persist()'s second argument", receivedSummary?.summary === 'A short summary.');

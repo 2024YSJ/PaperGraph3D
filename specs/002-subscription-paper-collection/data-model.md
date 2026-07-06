@@ -136,10 +136,18 @@ interface SummaryResult {
 interface PipelineHooks {
   summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
   persist: (paper: Paper, summary?: SummaryResult) => Promise<void>;
+  alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
 }
+
+// runCollectionPass(candidates, hooks, summarizationEnabled, semanticScholarApiKey) —
+// note enrichment is NOT a PipelineHooks field; runCollectionPass calls
+// enrichFromSemanticScholar internally and threads semanticScholarApiKey (FR-020)
+// straight through to it. Only summarize/persist/alreadyPersisted are caller-injected.
 ```
 
 Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `PluginSettings.summarizationEnabled` (001) is true; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).
+
+**`runSubscriptionCheck`** (research.md Decision 24) is the composition function this feature ships as `startScheduler`'s `runCheck` dependency: `queryArxiv` → `parseArxivAtom` (per entry) → `runCollectionPass`. No task before this composed it — earlier drafts of this data model implicitly assumed `runCheck` existed without any task actually building it.
 
 ## Scheduler state
 
