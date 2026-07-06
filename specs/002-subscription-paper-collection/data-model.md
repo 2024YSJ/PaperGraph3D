@@ -113,11 +113,11 @@ Injected, not imported — `pipeline.ts` calls exactly these two hooks in order 
 interface ScheduledCheckState {
   // No new persisted fields — reads/writes only Subscription.lastCheckedAt (001).
   // "Due" for subscription s at time now: s.enabled && now >= (s.lastCheckedAt ?? -Infinity) + s.checkIntervalHours * 3_600_000
-  inFlight: Set<Subscription>; // in-memory only; subscriptions whose runCheck has not yet settled (research.md Decision 14)
+  inFlight: Set<string>; // in-memory only; keyed by `${type}:${value}`, NOT by object reference (research.md Decision 14)
 }
 ```
 
-The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently.
+The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently. It is keyed by a `type:value` string, not the `Subscription` object itself, because `getSubscriptions()` is not guaranteed to return the same object instances across separate calls (research.md Decision 14).
 
 ## Cross-entity notes
 
