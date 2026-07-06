@@ -15,7 +15,7 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
 	// Off until explicit opt-in, per constitution Principle IV (FR-012).
 	summarizationEnabled: false,
 	// Placeholder defaults, not committed decisions: the future graph-display
-	// feature (260702-007) may refine or replace these (FR-013, FR-016).
+	// feature (007) may refine or replace these (FR-013, FR-016).
 	graphDisplayOptions: {
 		layout: 'force-directed',
 		colorScheme: 'byPublicationYear',

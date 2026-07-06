@@ -17,10 +17,10 @@ export interface PaperCandidate {
 	// candidate leaves this undefined until a citation-aware provider (e.g.
 	// Semantic Scholar) fills it. Keeping unknown separate from 0 is what lets
 	// downstream features tell an *uncited* paper (0) from an *un-enriched* one
-	// (undefined) — e.g. future-directions text (260702-004) and uncited-node
-	// styling (260702-007). toPaper() defaults it to 0 at promotion, but records
+	// (undefined) — e.g. future-directions text (004) and uncited-node
+	// styling (007). toPaper() defaults it to 0 at promotion, but records
 	// whether it was ever known in Paper.citationsKnown so the distinction survives
-	// promotion instead of being lost (260702-002 FR-018).
+	// promotion instead of being lost (002 FR-018).
 	citationCount: number | undefined;
 	abstract: string;
 	sourceId: PaperSourceId;
@@ -28,9 +28,9 @@ export interface PaperCandidate {
 	// means "reference data not fetched yet"; an empty array means "fetched, and
 	// this paper cites nothing" — the same unknown-vs-empty distinction as
 	// citationCount. Added as an FR-016 extension of the 001 baseline (the
-	// graph-conversion feature 260702-006 builds directional edges A->B from
+	// graph-conversion feature 006 builds directional edges A->B from
 	// A.references; citedBy is derived by inverting these, never stored).
-	// Populating it is the collection/note-saving features' job (260702-002/003);
+	// Populating it is the collection/note-saving features' job (002/003);
 	// the shape is fixed here so they share one definition. toPaper() defaults it
 	// to [] at promotion.
 	references: PaperSourceId[] | undefined;
@@ -48,14 +48,14 @@ export interface Paper {
 	// to 0 and references to [], so a stored 0 here means "unknown, NOT confirmed
 	// uncited". This flag is what preserves the candidate's unknown-vs-zero
 	// distinction across promotion, which toPaper()'s `?? 0` / `?? []` defaults would
-	// otherwise collapse. It is what lets collection (260702-002) persist a paper
+	// otherwise collapse. It is what lets collection (002) persist a paper
 	// IMMEDIATELY instead of holding it back over missing citation data — so under
 	// windowed collection the paper never falls out of the search window and is never
 	// lost — while still recording that its citations are unconfirmed. Refresh
-	// (260702-005) and any auto-heal re-enrichment target citationsKnown === false
-	// papers; downstream consumers (260702-004 future-directions, 260702-007
+	// (005) and any auto-heal re-enrichment target citationsKnown === false
+	// papers; downstream consumers (004 future-directions, 007
 	// uncited-node styling) MUST treat a false-flag 0 as un-enriched, not as a real
-	// zero. (260702-002 FR-018.)
+	// zero. (002 FR-018.)
 	citationsKnown: boolean;
 	abstract: string;
 	sourceId: PaperSourceId;
@@ -104,11 +104,11 @@ export function isPaperSourceId(value: string): value is PaperSourceId {
 //
 // Missing citation data is therefore NOT a hold-back reason: a candidate with a
 // real year but unknown citations is promoted immediately with citationCount 0 and
-// citationsKnown = false, so collection (260702-002) never has to hold it out of a
+// citationsKnown = false, so collection (002) never has to hold it out of a
 // windowed search (where a held-back paper would fall out of the window and be lost
 // on the next pass). Accuracy is recovered later — enrich from a citation-aware
 // provider (Semantic Scholar) before promotion when a confirmed count is needed up
-// front, or let refresh (260702-005) / auto-heal correct the citationsKnown ===
+// front, or let refresh (005) / auto-heal correct the citationsKnown ===
 // false papers afterward. publicationYear is the ONLY hold-back trigger: it is a
 // hard requirement with no sane default, so a missing year returns undefined.
 export function toPaper(candidate: PaperCandidate): Paper | undefined {
