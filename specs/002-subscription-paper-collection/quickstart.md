@@ -284,18 +284,30 @@ check('the same subscription is never mid-flight in two overlapping runCheck cal
 ### No collection after the scheduler stops (SC-003)
 
 ```ts
-let callsAfterStop = 0;
-const stubPlugin = { registerInterval: (handle: number) => handle } as never;
+// HONEST LIMITATION: this quickstart script runs via plain Node with no real Obsidian host,
+// so it cannot literally exercise Obsidian's onunload clearing a registerInterval-registered
+// timer — that teardown is Obsidian's own guarantee, not this feature's code, and can only be
+// confirmed by manually installing the built plugin, toggling it off, and watching no further
+// requests fire (see CLAUDE.md's manual-test instructions). What THIS script can and does
+// verify is the positive half of SC-003's contract: startScheduler never reaches for a raw
+// `setInterval` of its own — every interval it creates is wrapped in the SAME `registerInterval`
+// call this stub records, so there is exactly one thing for Obsidian's teardown to clear.
+let registerIntervalCalls = 0;
+const stubPlugin = {
+  registerInterval: (handle: number) => { registerIntervalCalls += 1; return handle; },
+} as never;
+
+const liveSub = { ...sub, type: 'keyword' as const, value: 'stop-test', lastCheckedAt: null, enabled: true };
+let runCheckCalls = 0;
 
 await startScheduler(stubPlugin, {
-  getSubscriptions: () => [],
-  runCheck: async () => { callsAfterStop += 1; },
+  getSubscriptions: () => [liveSub],
+  runCheck: async () => { runCheckCalls += 1; return { truncated: false, coveredThrough: Date.now() }; },
   onSubscriptionChecked: async () => {},
 });
 
-// Simulate onunload: Obsidian clears every interval registered via registerInterval.
-// No task in this feature re-registers a raw setInterval, so nothing should fire afterward.
-check('no further collection call fires once the scheduler is torn down', callsAfterStop === 0);
+check('startScheduler registers its recurring tick through registerInterval exactly once (nothing bypasses it for Obsidian to miss on unload)', registerIntervalCalls === 1);
+check('with a real, enabled subscription present, the catch-up pass actually invokes runCheck (the wiring this feature depends on for SC-003 to matter at all)', runCheckCalls === 1);
 ```
 
 ### Settings are read live, and a stale in-flight summary is discarded (FR-021, research.md Decision 26)
@@ -424,6 +436,28 @@ check('onRegistered fires once for a genuinely new subscription', registered.len
 
 await immediateStore.register({ type: 'keyword', value: 'diffusion models' }); // idempotent hit
 check('onRegistered does NOT fire again for an idempotent re-registration', registered.length === 1);
+```
+
+### `startScheduler`'s returned `checkNow` handle actually runs a check immediately, and no-ops for a disabled subscription (FR-028, research.md Decision 34)
+
+```ts
+let checkNowRunCheckCalls = 0;
+const checkNowEnabledSub = { ...sub, type: 'keyword' as const, value: 'check-now-enabled', lastCheckedAt: null, enabled: true };
+const checkNowDisabledSub = { ...sub, type: 'keyword' as const, value: 'check-now-disabled', lastCheckedAt: null, enabled: false };
+
+const schedulerHandle = await startScheduler(/* plugin stub */ { registerInterval: (h: number) => h } as never, {
+  getSubscriptions: () => [checkNowEnabledSub, checkNowDisabledSub],
+  runCheck: async () => { checkNowRunCheckCalls += 1; return { truncated: false, coveredThrough: Date.now() }; },
+  onSubscriptionChecked: async () => {},
+});
+
+const callsAfterCatchUp = checkNowRunCheckCalls; // the catch-up pass above already checked the enabled one once
+
+await schedulerHandle.checkNow(checkNowEnabledSub);
+check('checkNow runs a check immediately for an enabled subscription, without waiting for a tick', checkNowRunCheckCalls === callsAfterCatchUp + 1);
+
+await schedulerHandle.checkNow(checkNowDisabledSub);
+check('checkNow is a no-op for a disabled subscription', checkNowRunCheckCalls === callsAfterCatchUp + 1);
 ```
 
 ## Expected outcome

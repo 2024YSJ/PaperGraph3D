@@ -250,7 +250,11 @@ export function queryArxiv(
 // coveredThrough (FR-026, research.md Decision 32): === window.to when the window was
 // fully covered (truncated === false); when truncated, the epoch-ms <published> time of
 // the last (newest, since submittedDate-ascending) <entry> actually fetched, so the caller
-// advances lastCheckedAt only over the covered prefix.
+// advances lastCheckedAt only over the covered prefix. If that newest entry's <published>
+// is missing/unparseable, scan backward (newer-to-older among fetched entries) for the
+// first one with a valid <published>; if none of the fetched entries has one, coveredThrough
+// falls back to window.from (no progress this pass) — coveredThrough MUST NEVER be NaN,
+// undefined, or thrown, since it is written straight into the persisted lastCheckedAt.
 
 export function fetchSemanticScholarBatch(
   arxivIds: string[],                 // plain version-stripped ids; the client prefixes each as `ARXIV:<id>` and chunks to ≤500 per request (research.md Decision 33)
