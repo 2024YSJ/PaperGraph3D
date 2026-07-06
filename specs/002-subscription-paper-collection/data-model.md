@@ -122,6 +122,8 @@ interface CollectionRunState {
 
 **Two-phase `runCollectionPass`** (research.md Decision 33): because enrichment is batched, `runCollectionPass` first *drains* its candidate iterable into an array (bounded ≤1,000 by the arXiv cap, Decision 11) and applies the `seen`/`alreadyPersisted`/year-gate filters, then batch-enriches the survivors in one `enrichFromSemanticScholar` call, then runs the sequential (one-at-a-time, event-loop-yielding — Decision 6) summarize→persist loop using the pre-fetched outcome map. The "no UI freeze" guarantee (FR-013) is preserved for the expensive per-paper summarize/persist work; only the cheap enrichment network call moves out of the per-candidate loop into a single batched phase.
 
+**Applying the outcome before promotion** (research.md Decision 33, gap closed in analysis review): `enrichFromSemanticScholar` only returns a `Map<PaperSourceId, EnrichmentOutcome>` — it never mutates a candidate. Since `promote` (= 001's `toPaper`) derives `citationsKnown` from the *candidate's own* `citationCount !== undefined`, Phase 2 MUST look up each survivor's outcome and, when `status === 'enriched'`, overwrite the candidate's `citationCount`/`references` with the outcome's values **before** calling `promote` — otherwise a successfully-enriched paper would still promote with `citationsKnown = false`, silently defeating enrichment. For `'terminalAbsence'`/`'transientFailure'`, the candidate passes to `promote` unchanged.
+
 ## Pipeline hooks (FR-017)
 
 ```ts
@@ -146,12 +148,14 @@ interface PipelineHooks {
   alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
 }
 
-// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey) —
-// the last two are FUNCTIONS, called live each time, never captured booleans/strings
-// (research.md Decision 26, FR-021) — see below. Note enrichment is NOT a
-// PipelineHooks field; runCollectionPass calls enrichFromSemanticScholar internally
-// and threads getSemanticScholarApiKey()'s result (FR-020) straight through to it.
-// Only summarize/persist/alreadyPersisted are caller-injected.
+// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey, enrich?) —
+// isSummarizationEnabled/getSemanticScholarApiKey are FUNCTIONS, called live each time,
+// never captured booleans/strings (research.md Decision 26, FR-021) — see below. `enrich`
+// is an OPTIONAL DI seam (research.md Decision 36): omitted in production (defaults to the
+// real enrichFromSemanticScholar), but overridable by quickstart.md/tests so a check that
+// exercises enrichment never has to make a live network call — enrichment is NOT a
+// PipelineHooks field (it isn't owned by a not-yet-existing feature like 003/004 are), but
+// it needed the same kind of injectable default those hooks already have.
 ```
 
 Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `isSummarizationEnabled()` is `true` at that moment; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).

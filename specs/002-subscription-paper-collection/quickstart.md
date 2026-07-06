@@ -157,6 +157,52 @@ const noYear: PaperCandidate = { ...candidates[0]!, publicationYear: undefined }
 check('candidate missing a year is held back, not promoted', promote(noYear) === undefined);
 ```
 
+### Enrichment is injectable, so it can be verified without a live network call (research.md Decision 36)
+
+```ts
+import type { EnrichmentOutcome } from '../src/collection/enrichment';
+
+// A stub `enrich` — this is the DI seam Decision 36 added specifically so quickstart
+// never needs a real Semantic Scholar call. Every runCollectionPass scenario below
+// passes one of these as the 5th argument instead of relying on the real
+// enrichFromSemanticScholar (which main.ts's production wiring uses by omitting this
+// argument entirely and taking the default).
+function stubEnrichNone(): (candidates: PaperCandidate[]) => Promise<Map<string, EnrichmentOutcome>> {
+  return async (cands) => new Map(cands.map((c) => [c.sourceId, { status: 'terminalAbsence' as const }]));
+}
+function stubEnrichAll(citationCount: number, references: string[]): (candidates: PaperCandidate[]) => Promise<Map<string, EnrichmentOutcome>> {
+  return async (cands) => new Map(cands.map((c) => [c.sourceId, { status: 'enriched' as const, citationCount, references: references as never[] }]));
+}
+```
+
+### A successful enrichment outcome, once applied to its candidate, promotes with citationsKnown = true — verified end-to-end through runCollectionPass (FR-018, research.md Decision 33's apply-before-promote step)
+
+```ts
+let enrichedPersisted: Paper | undefined;
+async function* enrichedOne(): AsyncIterable<PaperCandidate> {
+  yield candidates[0] as PaperCandidate;
+}
+
+await runCollectionPass(enrichedOne(), {
+  persist: async (paper: Paper) => { enrichedPersisted = paper; },
+  alreadyPersisted: async () => false,
+}, () => false, () => undefined, stubEnrichAll(7, ['arxiv:2109.00001']));
+
+check('a candidate enriched via the injected stub is persisted with citationsKnown = true', enrichedPersisted?.citationsKnown === true);
+check('a candidate enriched via the injected stub carries through the real citation count', enrichedPersisted?.citationCount === 7);
+
+// Contrast: the same candidate with a "not enriched" outcome (terminalAbsence) still
+// persists (never held back), but with citationsKnown = false — this is what "forgetting
+// to apply the outcome" would look like if the apply step (Decision 33) were skipped.
+let unenrichedPersisted: Paper | undefined;
+await runCollectionPass(enrichedOne(), {
+  persist: async (paper: Paper) => { unenrichedPersisted = paper; },
+  alreadyPersisted: async () => false,
+}, () => false, () => undefined, stubEnrichNone());
+
+check('a candidate with a terminalAbsence outcome persists with citationsKnown = false, not held back', unenrichedPersisted?.citationsKnown === false);
+```
+
 ### Deduplication across two subscriptions (User Story 2, Acceptance Scenario 3)
 
 ```ts
@@ -169,7 +215,7 @@ async function* twice(): AsyncIterable<PaperCandidate> {
 await runCollectionPass(twice(), {
   persist: async (_paper: Paper) => { persistedCount += 1; },
   alreadyPersisted: async () => false,
-}, () => false, () => undefined);
+}, () => false, () => undefined, stubEnrichNone());
 
 check('duplicate sourceId processed only once', persistedCount === 1);
 ```
@@ -205,7 +251,7 @@ await runCollectionPass(one(), {
   summarize: async () => { throw new Error('LLM timeout'); },
   persist: async (paper: Paper, summary) => { persisted = paper; persistedSummary = summary; },
   alreadyPersisted: async () => false,
-}, () => true, () => undefined);
+}, () => true, () => undefined, stubEnrichNone());
 
 check('paper is still persisted after a summarization failure', persisted !== undefined);
 check('a failed summarization reaches persist() as undefined, not silently omitted from the call', persistedSummary === undefined);
@@ -222,7 +268,7 @@ await runCollectionPass(one(), {
   },
   persist: async (_paper: Paper, summary) => { receivedSummary = summary; },
   alreadyPersisted: async () => false,
-}, () => true, () => undefined);
+}, () => true, () => undefined, stubEnrichNone());
 
 check('summarize() receives only the four narrowed fields, never the full Paper', !summarizeReceivedFullPaperFields);
 check("a successful summarize() result is passed through to persist()'s second argument", receivedSummary?.summary === 'A short summary.');
@@ -328,7 +374,7 @@ await runCollectionPass(oneMore(), {
   },
   persist: async (_paper: Paper, summary) => { discardPersistedSummary = summary; },
   alreadyPersisted: async () => false,
-}, () => liveEnabled, () => undefined);
+}, () => liveEnabled, () => undefined, stubEnrichNone());
 
 check('a summary generated after summarization was toggled off mid-flight is discarded, not persisted', discardPersistedSummary === undefined);
 ```
