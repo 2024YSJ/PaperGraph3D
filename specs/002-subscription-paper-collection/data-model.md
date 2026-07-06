@@ -21,6 +21,8 @@ Backed by a plain JSON-serializable array persisted through the plugin's own `lo
 
 **`register` rejects an empty/whitespace-only value** (FR-025, Clarification 2026-07-06): `input.value.trim().length === 0` throws before anything else runs — no idempotency check, no persistence. **`register` is idempotent on `(type, value)`** (FR-001, Clarification 2026-07-06): before creating anything, it checks `list()` for an existing subscription with the same `type` and `value`; if found, that existing subscription is returned as-is and `input.label`/`input.checkIntervalHours` are ignored. `input.label` defaults to `input.value` when omitted. This is also what keeps `(type, value)` a safe, collision-free key for the scheduler's in-flight guard (Decision 14) — two subscriptions can never share a `(type, value)` pair.
 
+**Immediate check on genuinely-new registration** (FR-028, research.md Decision 34): `SubscriptionStoreDeps` carries an optional `onRegistered?: (subscription) => void` that `register` fires **only** after persisting a genuinely-new subscription — never on the idempotent-hit path. `main.ts` (T020) wires it to the scheduler's `checkNow` handle so a new subscription is checked right away rather than up to ~15 min later; the callback seam keeps `subscriptionStore.ts` unaware `scheduler.ts` exists.
+
 ## `PluginSettings` extension (FR-020)
 
 The only field this feature adds to 001's baseline (an FR-016-style additive extension, not a modification of anything 001 already fixed):
@@ -92,12 +94,12 @@ type EnrichmentOutcome =
   | { status: 'transientFailure' }; // exhausted bounded retries this pass — not retried further by this feature
 
 function enrichFromSemanticScholar(
-  candidate: PaperCandidate,
-  apiKey: string | undefined, // PluginSettings.semanticScholarApiKey (FR-020)
-): Promise<EnrichmentOutcome>;
+  candidates: PaperCandidate[],       // the whole surviving candidate set for a check (batch, research.md Decision 33)
+  apiKey: string | undefined,         // PluginSettings.semanticScholarApiKey (FR-020)
+): Promise<Map<PaperSourceId, EnrichmentOutcome>>; // one outcome per candidate, keyed by sourceId
 ```
 
-`terminalAbsence` and `transientFailure` are distinguished only for observability/logging (e.g., surfacing a clearer failure reason to the user) — both leave the candidate's `citationCount`/`references` as `undefined`, so both promote identically with `citationsKnown = false` (FR-018). Neither is retried again within this feature; only 005's manual refresh or a future auto-heal may re-attempt (out of scope here).
+Enrichment is **batched** (FR-027, research.md Decision 33): the surviving candidate set is enriched via Semantic Scholar's `POST /paper/batch` endpoint (≤500 ids/request, chunked when more) — roughly one request for a whole check, never one request per paper — instead of the earlier one-`GET`-per-paper shape (which would systematically hit the shared unauthenticated rate limit). A candidate the batch reports no record for (`null` element) → `terminalAbsence`; a whole-chunk `429`/network failure → `transientFailure` for every id in that chunk after bounded retry. `terminalAbsence` and `transientFailure` are distinguished only for observability/logging — both leave the candidate's `citationCount`/`references` as `undefined`, so both promote identically with `citationsKnown = false` (FR-018). Neither is retried again within this feature; only 005's manual refresh or a future auto-heal may re-attempt (out of scope here). The single-paper `GET` lookup is retained in the provider client for 005's per-paper refresh, not used by 002 collection.
 
 ## Promotion (delegates to 001)
 
@@ -117,6 +119,8 @@ interface CollectionRunState {
 ```
 
 `CollectionRunState` never survives past a single scheduled tick or catch-up pass — it is constructed fresh each time `scheduler.ts` fires a check, per subscription-check-or-catch-up run (not shared across subscriptions run in the same tick, since two subscriptions checked in the same tick still need cross-subscription dedup — see contract in `contracts/collection-pipeline.md`).
+
+**Two-phase `runCollectionPass`** (research.md Decision 33): because enrichment is batched, `runCollectionPass` first *drains* its candidate iterable into an array (bounded ≤1,000 by the arXiv cap, Decision 11) and applies the `seen`/`alreadyPersisted`/year-gate filters, then batch-enriches the survivors in one `enrichFromSemanticScholar` call, then runs the sequential (one-at-a-time, event-loop-yielding — Decision 6) summarize→persist loop using the pre-fetched outcome map. The "no UI freeze" guarantee (FR-013) is preserved for the expensive per-paper summarize/persist work; only the cheap enrichment network call moves out of the per-candidate loop into a single batched phase.
 
 ## Pipeline hooks (FR-017)
 
@@ -166,7 +170,13 @@ interface ScheduledCheckState {
 }
 ```
 
-The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently. It is keyed by a `type:value` string, not the `Subscription` object itself, because `getSubscriptions()` is not guaranteed to return the same object instances across separate calls (research.md Decision 14). When multiple subscriptions are due in the same pass, `startScheduler` processes them one after another (`for...of` + `await`), never concurrently (FR-022, research.md Decision 27) — `inFlight` therefore never has more than one entry added at the exact same instant in practice, though the guard itself would still be correct even if that changed.
+The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass, a recurring tick, and an immediate on-register check (`checkNow`) from invoking `runCheck` for the same subscription concurrently. It is keyed by a `type:value` string, not the `Subscription` object itself, because `getSubscriptions()` is not guaranteed to return the same object instances across separate calls (research.md Decision 14). When multiple subscriptions are due in the same pass, `startScheduler` processes them one after another (`for...of` + `await`), never concurrently (FR-022, research.md Decision 27) — `inFlight` therefore never has more than one entry added at the exact same instant in practice, though the guard itself would still be correct even if that changed.
+
+**Recording the covered boundary** (FR-026, research.md Decision 32): `runCheck` returns `{ truncated, coveredThrough }`, and the scheduler records `lastCheckedAt` via `onSubscriptionChecked(subscription, coveredThrough)` — the covered boundary, `=== window.to` for a fully-covered window or the newest fetched paper's submission time for a truncated one — never `window.to` unconditionally. This is what makes a truncated window resumable across successive checks instead of losing its uncovered tail.
+
+**`checkNow` handle** (FR-028, research.md Decision 34): `startScheduler` returns `{ checkNow(subscription): Promise<void> }`, which runs one subscription through the identical due-check path (same `computeCollectionWindow`, same `inFlight` guard, same `runCheck`/`onSubscriptionChecked`/`onFailure`), a no-op if the subscription is not `enabled`. `main.ts` wires it to `subscriptionStore`'s `onRegistered`.
+
+**Re-enable needs no special case** (FR-029, research.md Decision 35): since `lastCheckedAt` does not move while a subscription is disabled, the ordinary `computeCollectionWindow` spans the whole disabled period on the next check — a catch-up, exactly like a plugin-was-off gap — and Decision 32 covers an over-large such window without loss.
 
 ## Cross-entity notes
 

@@ -138,6 +138,7 @@ const url = buildArxivSearchUrl(
 check('query date range uses UTC-formatted bounds (20230101/20230102), not shifted by local timezone', url.includes('20230101') && url.includes('20230102'));
 check('embedded quote characters in the subscription value are stripped, not left to break the query', !decodeURIComponent(url).includes('""'));
 check('the assembled query string is URL-encoded (no literal spaces in the URL)', !url.includes(' '));
+check('results are pinned to submittedDate ascending order, never arXiv default relevance (FR-026)', url.includes('sortBy=submittedDate') && url.includes('sortOrder=ascending'));
 ```
 
 ### Promotion without enrichment (User Story 4 / Edge Cases)
@@ -184,6 +185,11 @@ check('new subscription look-back is bounded to 24h, not unbounded', now - brand
 
 const existingWindow = computeCollectionWindow({ lastCheckedAt: now - 100_000 }, now);
 check('existing subscription catch-up window starts at lastCheckedAt', existingWindow.from === now - 100_000);
+
+// Re-enabling a long-disabled subscription keeps catch-up semantics (FR-029): because
+// lastCheckedAt did not advance while disabled, the window spans the whole disabled span.
+const reEnabledWindow = computeCollectionWindow({ lastCheckedAt: now - 30 * 24 * 60 * 60 * 1000 }, now);
+check('a re-enabled subscription catches up over the whole disabled period, not from now', reEnabledWindow.from === now - 30 * 24 * 60 * 60 * 1000);
 ```
 
 ### Summarization failure does not block persistence, and the summary reaches persist() (FR-017, research.md Decision 22)
@@ -266,6 +272,7 @@ await startScheduler(/* plugin stub */ {} as never, {
     maxConcurrentRunCheckCalls = Math.max(maxConcurrentRunCheckCalls, concurrentRunCheckCalls);
     await new Promise((resolve) => setTimeout(resolve, 50)); // simulates a slow catch-up pass
     concurrentRunCheckCalls -= 1;
+    return { truncated: false, coveredThrough: Date.now() };
   },
   onSubscriptionChecked: async () => {},
   // A second trigger (e.g. a recurring tick) fires while the first runCheck above is still pending.
@@ -329,7 +336,7 @@ await startScheduler(/* plugin stub */ {} as never, {
     sequentialMaxActive = Math.max(sequentialMaxActive, sequentialActive);
     await new Promise((resolve) => setTimeout(resolve, 20));
     sequentialActive -= 1;
-    return { truncated: false };
+    return { truncated: false, coveredThrough: Date.now() };
   },
   onSubscriptionChecked: async () => {},
 });
@@ -379,6 +386,44 @@ try {
   emptyValueRejected = true;
 }
 check('registering a whitespace-only subscription value throws and creates nothing', emptyValueRejected === true);
+```
+
+### A truncated window advances lastCheckedAt only to the covered boundary, not to now (FR-026, research.md Decision 32)
+
+```ts
+const truncNow = Date.now();
+const coveredBoundary = truncNow - 5 * 60 * 60 * 1000; // newest paper actually fetched, 5h ago
+let truncRecordedThrough: number | undefined;
+let truncNotified = false;
+
+await startScheduler(/* plugin stub */ {} as never, {
+  getSubscriptions: () => [{ ...sub, lastCheckedAt: truncNow - 90 * 24 * 60 * 60 * 1000, enabled: true }],
+  runCheck: async () => ({ truncated: true, coveredThrough: coveredBoundary }),
+  onSubscriptionChecked: async (_s, checkedThrough) => { truncRecordedThrough = checkedThrough; },
+  onFailure: () => { truncNotified = true; },
+  now: () => truncNow,
+});
+
+check('a truncated window still records lastCheckedAt — at the covered boundary, not now', truncRecordedThrough === coveredBoundary);
+check('a truncated window does NOT advance lastCheckedAt to now (the uncovered tail is picked up next check)', truncRecordedThrough !== truncNow);
+check('a truncated window still surfaces the FR-014 notice', truncNotified === true);
+```
+
+### Registering a genuinely new subscription triggers an immediate check; re-registering does not (FR-028, research.md Decision 34)
+
+```ts
+const registered: string[] = [];
+const immediateStore = createSubscriptionStore({
+  load: async () => [],
+  save: async () => {},
+  onRegistered: (s) => { registered.push(s.value); },
+});
+
+await immediateStore.register({ type: 'keyword', value: 'diffusion models' });
+check('onRegistered fires once for a genuinely new subscription', registered.length === 1 && registered[0] === 'diffusion models');
+
+await immediateStore.register({ type: 'keyword', value: 'diffusion models' }); // idempotent hit
+check('onRegistered does NOT fire again for an idempotent re-registration', registered.length === 1);
 ```
 
 ## Expected outcome

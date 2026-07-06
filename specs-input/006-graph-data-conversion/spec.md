@@ -48,6 +48,7 @@ As the developer building the on-screen display, I want to receive already-organ
 
 - **FR-001**: All stored paper records MUST be read from their canonical JSON form and converted into a list of nodes; the Markdown note bodies MUST NOT be parsed for this purpose.
 - **FR-002**: Each node MUST include at least a title and publication year; a record without a publication year MUST be excluded from conversion.
+- **FR-002a**: Each node MUST carry the record's citation count and its `citationsKnown` flag (001/002 FR-018), so the display (007) can distinguish a confirmed-uncited paper (`citationsKnown = true`, count 0) from one merely not-yet-enriched (`citationsKnown = false`) rather than treating both empty-reference cases identically.
 - **FR-003**: Citation relationships MUST be represented as directional connections, showing which paper cites which, derived from each record's outbound references.
 - **FR-004**: Inbound "cited-by" information, if needed by the display, MUST be derived by inverting the directional connections rather than stored separately.
 - **FR-005**: A reference whose target paper is not stored MUST NOT cause conversion to fail; the dangling connection is ignored or handled separately.
@@ -56,7 +57,7 @@ As the developer building the on-screen display, I want to receive already-organ
 
 ### Key Entities
 
-- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs, e.g., source identifier, citation status), read from a Paper's JSON record (persistence owned by 003).
+- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs — source identifier, citation count, and the `citationsKnown` flag (001/002 FR-018) so the display can tell a confirmed-uncited paper from an un-enriched one), read from a Paper's JSON record (persistence owned by 003).
 - **Connection**: A directional edge A→B meaning paper A cites paper B, derived from A's outbound references.
 - **Graph Data**: The pair of (node list, connection list) handed to the display feature. Transient output, not persisted as its own file.
 
@@ -78,8 +79,8 @@ As the developer building the on-screen display, I want to receive already-organ
 
 *Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
 
-- **OQ-1 — Empty references: "cites nothing" vs "not yet enriched".** Conversion cannot distinguish the two, so real citation edges may be silently missing until enrichment/refresh. Accept this, or require an "enriched" signal (002 OQ-5 / 003 OQ-1) so conversion can tell them apart?
-- **OQ-2 — Reference scheme and edge matching.** Whether an edge connects depends on the reference `sourceId` scheme chosen in 002 (OQ-4): a reference whose scheme/prefix differs from stored papers' `sourceId`s becomes a dangling edge. The scheme must be confirmed so edges resolve.
+- ~~**OQ-1 — Empty references: "cites nothing" vs "not yet enriched".**~~ Resolved by 002 (FR-018): every stored `Paper` carries a `citationsKnown` boolean. `citationsKnown = false` means the paper was promoted without confirmed citation data, so its empty `references` mean "not yet enriched", not "cites nothing"; `citationsKnown = true` with empty references means genuinely cites nothing. This feature MUST carry `citationsKnown` (and citation count) onto each node so the display (007) can distinguish an un-enriched paper from a genuinely reference-less one, rather than silently treating a false-flagged paper as edgeless. (There is no separate 002/003 "enriched" flag to wait on — `citationsKnown` is it.)
+- ~~**OQ-2 — Reference scheme and edge matching.**~~ Resolved by 002 (FR-019 + version-stripped `sourceId`): every reference's `sourceId` is normalized to the `arxiv:` scheme whenever the referenced work has a known arXiv ID (falling back to `semanticScholar:` only when it does not), and every paper's own `sourceId` is built from the version-stripped base arXiv id. An edge A→B therefore matches by exact `sourceId` string equality; a reference carrying only a `semanticScholar:` id (no arXiv id available) simply lands as a dangling edge to a not-stored target (FR-005), which is expected, not a bug to fix here.
 
 ## Out of Scope
 
