@@ -167,21 +167,40 @@ const existingWindow = computeCollectionWindow({ lastCheckedAt: now - 100_000 },
 check('existing subscription catch-up window starts at lastCheckedAt', existingWindow.from === now - 100_000);
 ```
 
-### Summarization failure does not block persistence (FR-017)
+### Summarization failure does not block persistence, and the summary reaches persist() (FR-017, research.md Decision 22)
 
 ```ts
 let persisted: Paper | undefined;
+let persistedSummary: { summary: string; futureDirections: string } | undefined;
 async function* one(): AsyncIterable<PaperCandidate> {
   yield candidates[0] as PaperCandidate;
 }
 
 await runCollectionPass(one(), {
   summarize: async () => { throw new Error('LLM timeout'); },
-  persist: async (paper: Paper) => { persisted = paper; },
+  persist: async (paper: Paper, summary) => { persisted = paper; persistedSummary = summary; },
   alreadyPersisted: async () => false,
 }, true);
 
 check('paper is still persisted after a summarization failure', persisted !== undefined);
+check('a failed summarization reaches persist() as undefined, not silently omitted from the call', persistedSummary === undefined);
+
+// Now confirm a SUCCESSFUL summarize() result actually reaches persist() — this is exactly
+// the bug an earlier draft of this contract had (summarize's result had nowhere to go).
+let receivedSummary: { summary: string; futureDirections: string } | undefined;
+let summarizeReceivedFullPaperFields = false;
+await runCollectionPass(one(), {
+  summarize: async (input) => {
+    // input must be exactly {title, abstract, citationCount, citationsKnown} — never sourceId/references/authors.
+    summarizeReceivedFullPaperFields = 'sourceId' in input || 'references' in input || 'authors' in input;
+    return { summary: 'A short summary.', futureDirections: 'Possible next steps.' };
+  },
+  persist: async (_paper: Paper, summary) => { receivedSummary = summary; },
+  alreadyPersisted: async () => false,
+}, true);
+
+check('summarize() receives only the four narrowed fields, never the full Paper', !summarizeReceivedFullPaperFields);
+check("a successful summarize() result is passed through to persist()'s second argument", receivedSummary?.summary === 'A short summary.');
 ```
 
 ### Changing an existing subscription's check interval (User Story 1, Acceptance Scenario 4 / FR-002)

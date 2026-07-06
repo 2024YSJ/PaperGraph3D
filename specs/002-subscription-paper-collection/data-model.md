@@ -107,7 +107,7 @@ No new promotion logic is introduced — `promotion.ts` is a thin call-through t
 ```ts
 interface CollectionRunState {
   seen: Set<PaperSourceId>;             // entries already processed this run (FR-009)
-  alreadyPersisted: (id: PaperSourceId) => Promise<boolean>; // hook into 003 (research.md Decision 8)
+  alreadyPersisted: (id: PaperSourceId) => Promise<boolean>; // hook into 003 (research.md Decision 8); 003 does not yet define this capability (research.md Decision 23)
 }
 ```
 
@@ -116,13 +116,28 @@ interface CollectionRunState {
 ## Pipeline hooks (FR-017)
 
 ```ts
+interface SummarizationInput {
+  // Deliberately NOT the full Paper — only the four fields 004 actually needs
+  // (research.md Decision 22), so an external summarization provider never
+  // receives sourceId/references/authors/publicationYear it has no use for.
+  title: string;
+  abstract: string;
+  citationCount: number;
+  citationsKnown: boolean;
+}
+
+interface SummaryResult {
+  summary: string;
+  futureDirections: string;
+}
+
 interface PipelineHooks {
-  summarize?: (paper: Paper) => Promise<{ summary: string; futureDirections: string } | undefined>;
-  persist: (paper: Paper) => Promise<void>;
+  summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
+  persist: (paper: Paper, summary?: SummaryResult) => Promise<void>;
 }
 ```
 
-Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `PluginSettings.summarizationEnabled` (001) is true; then persist) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary," never blocking `persist`.
+Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `PluginSettings.summarizationEnabled` (001) is true; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).
 
 ## Scheduler state
 

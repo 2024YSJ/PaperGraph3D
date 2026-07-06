@@ -68,9 +68,21 @@ export function startScheduler(plugin: Plugin, deps: SchedulerDeps): void;
 ```ts
 import type { Paper, PaperCandidate } from '../models/paper';
 
+export interface SummarizationInput {
+  title: string;
+  abstract: string;
+  citationCount: number;
+  citationsKnown: boolean;
+}
+
+export interface SummaryResult {
+  summary: string;
+  futureDirections: string;
+}
+
 export interface PipelineHooks {
-  summarize?: (paper: Paper) => Promise<{ summary: string; futureDirections: string } | undefined>;
-  persist: (paper: Paper) => Promise<void>;
+  summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
+  persist: (paper: Paper, summary?: SummaryResult) => Promise<void>;
   alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
 }
 
@@ -85,8 +97,10 @@ export function runCollectionPass(
 - Candidates are consumed and handed to enrichment/promotion/persistence **one at a time**, never concurrently (FR-013) — `runCollectionPass` never calls `hooks.persist` for a second candidate before the previous candidate's full pipeline (enrich → optional summarize → persist) has settled.
 - A candidate whose `sourceId` is already `seen` in this run, or for which `hooks.alreadyPersisted` resolves `true`, is skipped before enrichment or summarization runs (FR-009) — no wasted network/LLM calls on a known duplicate.
 - A candidate that fails `promote` (missing/non-finite publication year) is skipped without calling any hook (FR-011) — this is not treated as an error.
-- `hooks.summarize` is only invoked when `summarizationEnabled` is `true`; when it is `false`, absent, rejects, or its promise never settles within an internal timeout, the paper still reaches `hooks.persist` (FR-017) with no summary attached.
+- `hooks.summarize` receives only `{ title, abstract, citationCount, citationsKnown }` — never the full `Paper` (never `sourceId`/`references`/`authors`/`publicationYear`) — so an external summarization provider (004) is handed no more data than it needs to decide summary vs. summary+future-directions content (research.md Decision 22).
+- `hooks.summarize` is only invoked when `summarizationEnabled` is `true`; when it is `false`, absent, rejects, or its promise never settles within an internal timeout, `hooks.persist` is still called with `summary` omitted (`undefined`) — this is what "004's abstract fallback applies and the paper is still saved" (FR-017) means at the call level. **`persist`'s `summary` argument is the only path 004's generated text ever reaches 003 through** — there is no other hook or side channel; a `summarize` result that isn't passed to the following `persist` call is a bug, not an accepted "fire and forget."
 - `runCollectionPass` never throws for an individual candidate's enrichment/summarization failure — it logs/surfaces the failure and continues to the next candidate, so one bad entry cannot abort an entire batch (FR-012 applied at the per-paper level).
+- `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T019) wires stub implementations of both hooks until 003 exists.
 
 ## `src/collection/enrichment.ts`
 
