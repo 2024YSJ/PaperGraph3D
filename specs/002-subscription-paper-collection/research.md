@@ -92,7 +92,33 @@ All `[NEEDS CLARIFICATION]` items from the spec were already resolved during `/s
 
 **Alternatives considered**: Direct static imports of 003/004 modules — rejected for now since those modules don't exist yet in this repository; revisit once 003/004 land (likely a mechanical swap from injected callbacks to direct calls, or keeping the injection seam for testability).
 
-## 11. Module layout
+## 12. arXiv query construction, date-range windowing, and pagination
+
+**Decision**: `queryArxiv` builds a `search_query` combining the subscription's own term with a `submittedDate` range clause via `AND`, per arXiv's documented syntax:
+- `keyword` → `` all:"<value>" AND submittedDate:[<from> TO <to>] ``
+- `author` → `` au:"<value>" AND submittedDate:[<from> TO <to>] ``
+- `arxivCategory` → `` cat:<value> AND submittedDate:[<from> TO <to>] ``
+
+where `<from>`/`<to>` are the `CollectionWindow` bounds formatted as arXiv's `YYYYMMDDTTTT` (GMT). Results are paged with `start`/`max_results` (0-based `start`, `max_results = 100` per page — well under arXiv's own 2000-per-call ceiling and its "refine queries returning more than 1,000 results" guidance) until arXiv returns fewer than `max_results` entries for that page (window fully covered) or a safety cap of **10 pages / 1,000 entries** is hit for a single subscription's single check. Hitting the cap sets `truncated: true` (reusing the FR-014 mechanism — no separate signal is introduced) and stops paging rather than continuing indefinitely. A fixed **3-second delay** is inserted between successive page requests for the *same* subscription's query, per arXiv's own rate-limit guidance ("we encourage you to play nice and incorporate a 3 second delay").
+
+**Rationale**: arXiv's API documentation is explicit about all three of these (pagination parameters, a documented per-call/total ceiling, and a requested inter-request delay) — this is not a judgment call but a direct transcription of the provider's stated contract, needed before `arxivClient.ts` can be implemented at all. Capping at 1,000 entries (not arXiv's own 2,000/30,000 ceiling) matches arXiv's *own* recommendation to keep individual queries under 1,000 results, and keeps a single pathological subscription (e.g., a very broad category right after registration, or a long off-period catch-up) from taking many minutes and dozens of sequential requests before this feature's own `batchQueue` (Decision 6) even starts processing candidates.
+
+**Alternatives considered**:
+- *A single `max_results` request per check, no pagination loop*: rejected — a catch-up window after a long off-period, or a broad category subscription, can plausibly exceed arXiv's default/requested page size; silently truncating to one page without setting `truncated: true` would violate FR-014 (user must be informed when a window isn't fully covered).
+- *No safety cap (page until arXiv returns nothing new)*: rejected — arXiv's own documentation warns a 30,000-result query "will typically take a little over 2 minutes to return," which would stall a single subscription's check well past what FR-013's "no freezing" spirit intends, and needlessly hammers a third-party API section that explicitly asks callers to self-limit.
+- *No inter-page delay*: rejected — directly contradicts arXiv's own stated rate-limit ask; a 3-second delay across at most 10 pages adds at most ~30 seconds to the rare worst-case check, not the common case (most subscriptions' windows return far fewer than 100 results and never page at all).
+
+## 13. Semantic Scholar endpoint shape and rate-limit posture
+
+**Decision**: `fetchSemanticScholarPaper` calls `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds` for the arXiv-ID-first lookup (research.md Decision 7), and falls back to `GET /graph/v1/paper/search?query=<title>&fields=title,authors,externalIds` (the relevance-search endpoint, not the bulk-search endpoint, since a single best-match lookup — not a large result set — is needed) for the title+first-author fallback. A **404** response is mapped directly to `EnrichmentOutcome.status === 'terminalAbsence'` (the paper genuinely isn't in Semantic Scholar's index — matches Decision 7's "positive no-such-paper" case exactly). A **429** (rate-limited) or network-level failure is mapped to a transient-retry attempt (bounded to 3, per Decision 7), with the same 3-second inter-attempt spacing used for arXiv (Decision 12) as a conservative default, since Semantic Scholar's own unauthenticated-tier rate limit is shared across all callers and not documented with a stable, citable number as of this research.
+
+**Rationale**: The 404/429 mapping requires no invented behavior — it follows directly from Semantic Scholar's documented status codes and this feature's own already-decided terminal-vs-transient split (Decision 7); the only new information this research contributes is *which* HTTP status maps to *which* of the two existing `EnrichmentOutcome` branches, so `enrichment.ts` has an unambiguous mapping to implement. Reusing the same 3-second spacing as arXiv (rather than inventing a separate, unverified number for Semantic Scholar) is a deliberately conservative choice given the shared, undocumented-strength unauthenticated rate limit.
+
+**Alternatives considered**:
+- *Register for a Semantic Scholar API key to get a stable, documented rate limit*: deferred, not rejected outright — an API key changes this feature's "no setup required" posture (constitution Principle IV disclosure would need to mention a credential), and unauthenticated access is sufficient for enrichment's bounded, non-bulk call pattern (one lookup per otherwise-complete candidate, not a bulk export). Revisit if unauthenticated throttling proves too aggressive in practice.
+- *Treat 429 as terminal (stop retrying immediately)*: rejected — a rate-limit response is definitionally transient (the same request would very plausibly succeed moments later), and FR-018 explicitly requires bounded retry for transient failures, only treating a positive absence/unresolved-match as terminal.
+
+## 14. Module layout
 
 **Decision**: New `src/collection/` directory, one file per responsibility (`arxivClient.ts`, `semanticScholarClient.ts`, `arxivParser.ts`, `semanticScholarParser.ts`, `enrichment.ts`, `promotion.ts`, `dedupe.ts`, `batchQueue.ts`, `scheduler.ts`, `pipeline.ts`), each importing only from `src/models/` (001) and, where unavoidable, the `obsidian` package (`requestUrl`, `Plugin` for `registerInterval` typing). `src/main.ts` gains a two-line addition in `onload` to construct and start the scheduler.
 

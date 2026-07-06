@@ -110,6 +110,10 @@ export function promote(candidate: PaperCandidate): Paper | undefined;
 ## `src/collection/arxivClient.ts` / `semanticScholarClient.ts`
 
 ```ts
+const ARXIV_PAGE_SIZE = 100;        // max_results per request (research.md Decision 12)
+const ARXIV_MAX_PAGES = 10;         // safety cap: 1,000 entries per subscription per check
+const ARXIV_INTER_PAGE_DELAY_MS = 3_000; // arXiv's own requested rate-limit spacing
+
 export function queryArxiv(
   subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
   window: { from: number; to: number },
@@ -117,9 +121,12 @@ export function queryArxiv(
 
 export function fetchSemanticScholarPaper(
   identity: { arxivId: string } | { title: string; firstAuthor: string },
-): Promise<unknown | undefined>; // raw JSON, consumed only by semanticScholarParser.ts
+): Promise<{ status: 200; body: unknown } | { status: 404 } | { status: 429 } | { status: 'networkError' }>;
+// body (when status 200) is raw JSON, consumed only by semanticScholarParser.ts
 ```
 
 **Behavior guarantees**:
-- `truncated: true` signals the provider capped how far back `window.from` could reach; the caller surfaces this to the user (FR-014) rather than silently accepting a partially-covered window as complete.
-- The raw `entries`/JSON value returned here MUST NOT cross out of `src/collection/` — only `arxivParser.ts`/`semanticScholarParser.ts` may consume it, and only a mapped `PaperCandidate`/enrichment field may leave this directory (FR-008).
+- `queryArxiv` builds a `search_query` combining the subscription's type-specific clause (`all:"<value>"` / `au:"<value>"` / `cat:<value>`) with `` AND submittedDate:[<window.from> TO <window.to>] `` (arXiv's date-range syntax; research.md Decision 12), and pages internally with `start`/`max_results=ARXIV_PAGE_SIZE` until a page returns fewer than `ARXIV_PAGE_SIZE` entries (fully covered) or `ARXIV_MAX_PAGES` is reached, inserting `ARXIV_INTER_PAGE_DELAY_MS` between successive page requests.
+- `truncated: true` is returned exactly when the `ARXIV_MAX_PAGES` cap was hit before the window was fully covered — this is this feature's own self-imposed limit (per arXiv's own guidance against >1,000-result queries), not a limit arXiv itself documents on how far back a query can reach. The caller surfaces `truncated: true` to the user (FR-014) rather than silently accepting a partially-covered window as complete.
+- `fetchSemanticScholarPaper`'s arXiv-ID-first form calls `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds`; its title+first-author fallback form calls `GET /graph/v1/paper/search?query=<title>&fields=title,authors,externalIds` (relevance search). A `404` response and a `429`/network-error response are returned as distinct, typed outcomes — never thrown — so `enrichment.ts` can map `404` to `EnrichmentOutcome.status: 'terminalAbsence'` and `429`/`'networkError'` to a bounded transient retry (research.md Decision 13), without needing to parse an HTTP status out of a caught exception.
+- The raw `entries`/`body` value returned here MUST NOT cross out of `src/collection/` — only `arxivParser.ts`/`semanticScholarParser.ts` may consume it, and only a mapped `PaperCandidate`/enrichment field may leave this directory (FR-008).
