@@ -71,6 +71,24 @@ await store.remove(noLabelSub);
 check('deleting subscriptions removes them from the persisted list', saved.length === 0);
 ```
 
+### A corrupted/hand-edited persisted subscription is dropped, not trusted as-is (research.md § load validation)
+
+```ts
+let invalidDataNotifiedCount: number | undefined;
+const corruptedStore = createSubscriptionStore({
+  load: async () => [
+    { type: 'keyword', value: 'good one', label: 'Good', checkIntervalHours: 24, lastCheckedAt: null, enabled: true },
+    { type: 'keyword', value: 'missing fields' }, // no label/checkIntervalHours/lastCheckedAt/enabled -- fails isValidSubscription
+  ],
+  save: async () => {},
+  onInvalidData: (droppedCount) => { invalidDataNotifiedCount = droppedCount; },
+});
+
+check('the well-formed subscription still loads', corruptedStore.list().length === 1);
+check('the malformed one is silently dropped, not thrown', corruptedStore.list()[0]?.value === 'good one');
+check('onInvalidData reports exactly the one dropped record', invalidDataNotifiedCount === 1);
+```
+
 ### Subscription storage never clobbers sibling PluginSettings (research.md Decision 15)
 
 ```ts
@@ -301,6 +319,25 @@ await startScheduler(/* plugin stub */ {} as never, {
 
 check('a provider failure surfaces a user-facing notice', notified === true);
 check('lastCheckedAt is not advanced past a failed window', recordedThrough === undefined);
+```
+
+### A repeated failure for the same subscription notifies once, not on every retry (FR-012a)
+
+```ts
+let repeatFailNotifyCount = 0;
+const flakySub = { ...sub, type: 'keyword' as const, value: 'flaky-provider', lastCheckedAt: null, enabled: true };
+
+const repeatFailHandle = await startScheduler(/* plugin stub */ { registerInterval: (h: number) => h } as never, {
+  getSubscriptions: () => [flakySub],
+  runCheck: async () => { throw new Error('arXiv unreachable'); }, // fails on every call
+  onSubscriptionChecked: async () => {},
+  onFailure: () => { repeatFailNotifyCount += 1; },
+});
+// The catch-up pass above already produced the first failure notice.
+await repeatFailHandle.checkNow(flakySub); // simulates a later retry (e.g. the next 15-min tick)
+await repeatFailHandle.checkNow(flakySub); // and another
+
+check('a subscription failing repeatedly notifies exactly once, not once per retry', repeatFailNotifyCount === 1);
 ```
 
 ### A subscription is never checked twice concurrently (research.md Decision 14)
