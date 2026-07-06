@@ -55,7 +55,7 @@ These exist only long enough to be mapped into a `PaperCandidate` (001) — they
 **Shared helper**: `stripArxivVersion(rawId: string): string` (defined once in `types.ts`, T003) strips a trailing `vN` suffix. Both `arxivParser.ts` and `semanticScholarParser.ts` call it — never each implement their own version-stripping — so a directly-collected paper's `sourceId` and any reference *to that same paper* arriving via Semantic Scholar enrichment always produce byte-identical `arxiv:`-scheme strings, which is what graph edge matching (006, exact `sourceId` equality) depends on.
 
 ```ts
-// arxivParser.ts — one per <entry> in the Atom feed
+// arxivParser.ts — one per <entry> in the Atom feed, produced by parseArxivEntry (research.md Decision 25)
 interface ArxivEntry {
   arxivId: string;        // VERSION-STRIPPED base id (e.g. "2301.12345", never "2301.12345v2") via stripArxivVersion(); used to build sourceId = `arxiv:${arxivId}` (research.md Decision 13)
   title: string;
@@ -147,7 +147,7 @@ interface PipelineHooks {
 
 Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `PluginSettings.summarizationEnabled` (001) is true; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).
 
-**`runSubscriptionCheck`** (research.md Decision 24) is the composition function this feature ships as `startScheduler`'s `runCheck` dependency: `queryArxiv` → `parseArxivAtom` (per entry) → `runCollectionPass`. No task before this composed it — earlier drafts of this data model implicitly assumed `runCheck` existed without any task actually building it.
+**`runSubscriptionCheck`** (research.md Decision 24) is the composition function this feature ships as `startScheduler`'s `runCheck` dependency: `queryArxiv` → `parseArxivEntry` (per already-parsed entry — not `parseArxivAtom`, which takes a whole document; research.md Decision 25) → `runCollectionPass`. No task before this composed it — earlier drafts of this data model implicitly assumed `runCheck` existed without any task actually building it.
 
 ## Scheduler state
 

@@ -93,9 +93,12 @@ export function runCollectionPass(
   semanticScholarApiKey: string | undefined, // threaded straight through to every enrichFromSemanticScholar call (FR-020)
 ): Promise<void>;
 
-// The composition point: turns "a subscription and a window" into candidates and runs them
-// through runCollectionPass. This is the concrete function startScheduler's `runCheck`
-// dependency (contracts § scheduler.ts) wraps — no other task builds this orchestration.
+// The composition point: turns "a subscription and a window" into candidates (via
+// queryArxiv's entries, each mapped through arxivParser.ts's parseArxivEntry — never
+// parseArxivAtom, which expects a whole XML document, not an already-parsed entry
+// node) and runs them through runCollectionPass. This is the concrete function
+// startScheduler's `runCheck` dependency (contracts § scheduler.ts) wraps — no other
+// task builds this orchestration.
 export function runSubscriptionCheck(
   subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
   window: { from: number; to: number },
@@ -114,7 +117,7 @@ export function runSubscriptionCheck(
 - `hooks.summarize` is only invoked when `summarizationEnabled` is `true`; when it is `false`, absent, rejects, or its promise never settles within an internal timeout, `hooks.persist` is still called with `summary` omitted (`undefined`) — this is what "004's abstract fallback applies and the paper is still saved" (FR-017) means at the call level. **`persist`'s `summary` argument is the only path 004's generated text ever reaches 003 through** — there is no other hook or side channel; a `summarize` result that isn't passed to the following `persist` call is a bug, not an accepted "fire and forget."
 - `runCollectionPass` never throws for an individual candidate's enrichment/summarization failure — it logs/surfaces the failure and continues to the next candidate, so one bad entry cannot abort an entire batch (FR-012 applied at the per-paper level).
 - `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T020) wires stub implementations of both hooks until 003 exists.
-- `runSubscriptionCheck` is the concrete composition this feature ships as `startScheduler`'s (contracts § scheduler.ts) `runCheck` dependency: it calls `queryArxiv(subscription, window)` (contracts § arxivClient.ts), maps each raw Atom entry through `parseArxivAtom` (contracts § arxivParser.ts) into an `AsyncIterable<PaperCandidate>`, and hands that to `runCollectionPass` — then returns `{ truncated }` exactly as `queryArxiv` reported it, so `startScheduler` (research.md Decision 5) can surface the FR-014 notice without either function needing to know about the other's internals (research.md Decision 24).
+- `runSubscriptionCheck` is the concrete composition this feature ships as `startScheduler`'s (contracts § scheduler.ts) `runCheck` dependency: it calls `queryArxiv(subscription, window)` (contracts § arxivClient.ts), maps each of its `entries` through `parseArxivEntry` (contracts § arxivParser.ts — **not** `parseArxivAtom`, which takes a whole XML document rather than one already-parsed entry) into an `AsyncIterable<PaperCandidate>`, and hands that to `runCollectionPass` — then returns `{ truncated }` exactly as `queryArxiv` reported it, so `startScheduler` (research.md Decision 5) can surface the FR-014 notice without either function needing to know about the other's internals (research.md Decision 24).
 
 ## `src/collection/arxivParser.ts` / `semanticScholarParser.ts`
 
@@ -124,6 +127,15 @@ import type { PaperCandidate, PaperSourceId } from '../models/paper';
 // types.ts (T003) — shared by both parsers, never re-implemented per-file
 export function stripArxivVersion(rawId: string): string;
 
+// Operates on a single already-parsed Atom <entry> node — this is what queryArxiv's
+// `entries` (contracts § arxivClient.ts) actually are, and what runSubscriptionCheck
+// (contracts § pipeline.ts) maps each of them through.
+export function parseArxivEntry(entry: Element): PaperCandidate;
+
+// Convenience wrapper for a whole Atom document (e.g. for quickstart/manual testing):
+// DOMParser.parseFromString(xml) -> each <entry> -> parseArxivEntry. Not used by
+// runSubscriptionCheck, which already has individual entry nodes from queryArxiv
+// and would gain nothing by re-serializing them back into one XML string first.
 export function parseArxivAtom(xml: string): PaperCandidate[];
 
 export interface SemanticScholarPaper {
@@ -144,7 +156,7 @@ export function toPaperSourceId(reference: SemanticScholarReference): PaperSourc
 ```
 
 **Behavior guarantees**:
-- `parseArxivAtom` builds each candidate's `sourceId` as `` `arxiv:${stripArxivVersion(rawId)}` `` from the Atom `<id>` element (research.md Decision 13).
+- `parseArxivEntry` builds the candidate's `sourceId` as `` `arxiv:${stripArxivVersion(rawId)}` `` from the entry's `<id>` element (research.md Decision 13); `parseArxivAtom(xml)` is exactly `Array.from(new DOMParser().parseFromString(xml, 'application/xml').querySelectorAll('entry')).map(parseArxivEntry)` — it introduces no parsing logic of its own.
 - `parseSemanticScholarPaper` maps a raw Semantic Scholar JSON body into `SemanticScholarPaper`; both `SemanticScholarPaper.arxivId` and every `SemanticScholarReference.arxivId` are passed through `stripArxivVersion` before being stored on these intermediate types — **never assumed to already arrive version-free from Semantic Scholar's `externalIds.ArXiv` field** (research.md Decision 9/13).
 - `toPaperSourceId(reference)` returns `` `arxiv:${reference.arxivId}` `` (already version-stripped by `parseSemanticScholarPaper`) when `reference.arxivId` is defined, otherwise `` `semanticScholar:${reference.semanticScholarId}` ``. This is the single function both `enrichment.ts` (building `EnrichmentOutcome.references`) and any future caller use — there is exactly one place this mapping happens.
 - Because `stripArxivVersion` is called by both parsers on every arXiv ID they handle, a paper's own `sourceId` (from `parseArxivAtom`) and any reference *to that paper* (via `toPaperSourceId`) are guaranteed to produce the identical string, regardless of which parser produced which — this is what graph edge matching (006, exact `sourceId` equality) depends on.
@@ -164,6 +176,8 @@ export function enrichFromSemanticScholar(candidate: PaperCandidate, apiKey: str
 
 **Behavior guarantees**:
 - Identity matching is **arXiv-ID only** (Clarification 2026-07-06, superseding the 2026-07-05 answer) — there is no title/author fallback, to eliminate the risk of a false-positive match silently attaching the wrong paper's citation data. A candidate whose `sourceId` provider is not `'arxiv'` is not a supported input for this function (arXiv is this feature's sole discovery provider; Semantic Scholar enrichment always starts from an arXiv-sourced candidate).
+- The plain arXiv ID passed to `fetchSemanticScholarPaper` (contracts § arxivClient.ts/semanticScholarClient.ts) is extracted from `candidate.sourceId` by stripping the `` `arxiv:` `` prefix (`candidate.sourceId.slice('arxiv:'.length)`) — `candidate.sourceId` is already version-stripped (Decision 13), so no further normalization is needed at this step.
+- On a `200` response, the body is passed to `parseSemanticScholarPaper` (contracts § arxivParser.ts/semanticScholarParser.ts), and each of its `references` is mapped through `toPaperSourceId` to build `EnrichmentOutcome`'s `{ status: 'enriched'; citationCount; references: PaperSourceId[] }` — this function never returns a raw `SemanticScholarPaper`/`SemanticScholarReference` to its own caller, only the fully-mapped `EnrichmentOutcome`.
 - `'terminalAbsence'` is returned only for a positive "no such paper" (`404`) response — never for a network/timeout/5xx/rate-limit error, which instead yields at most 3 attempts before returning `'transientFailure'` (FR-018).
 - Neither `'terminalAbsence'` nor `'transientFailure'` throws — both are normal return values the caller (`pipeline.ts`, via `promotion.ts`) treats identically for promotion purposes (`citationsKnown = false`).
 
@@ -195,7 +209,12 @@ export function buildArxivSearchUrl(
 export function queryArxiv(
   subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
   window: { from: number; to: number },
-): Promise<{ entries: unknown[]; truncated: boolean }>; // entries are raw Atom <entry> DOM nodes, consumed only by arxivParser.ts; internally pages by calling buildArxivSearchUrl once per page
+): Promise<{ entries: Element[]; truncated: boolean }>;
+// entries are individual Atom <entry> DOM nodes, extracted via queryArxiv's own
+// DOMParser call (needed anyway to count entries per page for pagination) — NOT
+// via arxivParser.ts, so arxivClient.ts (T006) and arxivParser.ts (T008) stay
+// independent of each other. Consumed only by arxivParser.ts's parseArxivEntry.
+// internally pages by calling buildArxivSearchUrl once per page
 
 export function fetchSemanticScholarPaper(
   arxivId: string,
