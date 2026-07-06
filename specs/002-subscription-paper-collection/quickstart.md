@@ -168,7 +168,7 @@ async function* twice(): AsyncIterable<PaperCandidate> {
 await runCollectionPass(twice(), {
   persist: async (_paper: Paper) => { persistedCount += 1; },
   alreadyPersisted: async () => false,
-}, false, undefined);
+}, () => false, () => undefined);
 
 check('duplicate sourceId processed only once', persistedCount === 1);
 ```
@@ -199,7 +199,7 @@ await runCollectionPass(one(), {
   summarize: async () => { throw new Error('LLM timeout'); },
   persist: async (paper: Paper, summary) => { persisted = paper; persistedSummary = summary; },
   alreadyPersisted: async () => false,
-}, true, undefined);
+}, () => true, () => undefined);
 
 check('paper is still persisted after a summarization failure', persisted !== undefined);
 check('a failed summarization reaches persist() as undefined, not silently omitted from the call', persistedSummary === undefined);
@@ -216,7 +216,7 @@ await runCollectionPass(one(), {
   },
   persist: async (_paper: Paper, summary) => { receivedSummary = summary; },
   alreadyPersisted: async () => false,
-}, true, undefined);
+}, () => true, () => undefined);
 
 check('summarize() receives only the four narrowed fields, never the full Paper', !summarizeReceivedFullPaperFields);
 check("a successful summarize() result is passed through to persist()'s second argument", receivedSummary?.summary === 'A short summary.');
@@ -289,6 +289,96 @@ await startScheduler(stubPlugin, {
 // Simulate onunload: Obsidian clears every interval registered via registerInterval.
 // No task in this feature re-registers a raw setInterval, so nothing should fire afterward.
 check('no further collection call fires once the scheduler is torn down', callsAfterStop === 0);
+```
+
+### Settings are read live, and a stale in-flight summary is discarded (FR-021, research.md Decision 26)
+
+```ts
+let liveEnabled = true;
+let discardPersistedSummary: { summary: string; futureDirections: string } | undefined = { summary: 'placeholder', futureDirections: 'placeholder' };
+
+async function* oneMore(): AsyncIterable<PaperCandidate> {
+  yield candidates[0] as PaperCandidate;
+}
+
+await runCollectionPass(oneMore(), {
+  summarize: async () => {
+    // The setting flips to disabled WHILE summarization is in flight.
+    liveEnabled = false;
+    return { summary: 'generated after toggle-off', futureDirections: 'n/a' };
+  },
+  persist: async (_paper: Paper, summary) => { discardPersistedSummary = summary; },
+  alreadyPersisted: async () => false,
+}, () => liveEnabled, () => undefined);
+
+check('a summary generated after summarization was toggled off mid-flight is discarded, not persisted', discardPersistedSummary === undefined);
+```
+
+### Two due subscriptions in the same tick are checked sequentially, never concurrently (FR-022, research.md Decision 27)
+
+```ts
+let sequentialActive = 0;
+let sequentialMaxActive = 0;
+const subA = { ...sub, type: 'keyword' as const, value: 'a', lastCheckedAt: null, enabled: true };
+const subB = { ...sub, type: 'keyword' as const, value: 'b', lastCheckedAt: null, enabled: true };
+
+await startScheduler(/* plugin stub */ {} as never, {
+  getSubscriptions: () => [subA, subB],
+  runCheck: async () => {
+    sequentialActive += 1;
+    sequentialMaxActive = Math.max(sequentialMaxActive, sequentialActive);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    sequentialActive -= 1;
+    return { truncated: false };
+  },
+  onSubscriptionChecked: async () => {},
+});
+
+check('two subscriptions due in the same tick are never mid-flight together', sequentialMaxActive === 1);
+```
+
+### A single malformed arXiv entry is skipped without failing the batch (FR-023, research.md Decision 28)
+
+```ts
+const MIXED_ATOM = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2301.00001v1</id>
+    <title>Missing a summary element entirely</title>
+    <author><name>Ada Lovelace</name></author>
+    <published>2023-01-15T00:00:00Z</published>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2301.00002v1</id>
+    <title>A Well-Formed Paper</title>
+    <author><name>Grace Hopper</name></author>
+    <published>2023-01-16T00:00:00Z</published>
+    <summary>An abstract.</summary>
+  </entry>
+</feed>`;
+
+const mixedCandidates = parseArxivAtom(MIXED_ATOM);
+check('the malformed entry is skipped, not thrown, and the well-formed one still parses', mixedCandidates.length === 1 && mixedCandidates[0]?.sourceId === 'arxiv:2301.00002');
+```
+
+### A clock that has moved backward clamps to an empty window, never an inverted range (FR-024, research.md Decision 29)
+
+```ts
+const backwardsNow = now - 200_000; // "now" has moved backward past lastCheckedAt
+const clampedWindow = computeCollectionWindow({ lastCheckedAt: now - 100_000 }, backwardsNow);
+check('a clock moving backward produces an empty window, not an inverted one', clampedWindow.from === backwardsNow && clampedWindow.to === backwardsNow);
+```
+
+### Registering a subscription with an empty or whitespace-only value is rejected (FR-025, research.md Decision 30)
+
+```ts
+let emptyValueRejected = false;
+try {
+  await store.register({ type: 'keyword', value: '   ' });
+} catch {
+  emptyValueRejected = true;
+}
+check('registering a whitespace-only subscription value throws and creates nothing', emptyValueRejected === true);
 ```
 
 ## Expected outcome

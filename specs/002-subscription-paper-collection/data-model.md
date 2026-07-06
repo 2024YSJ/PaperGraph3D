@@ -19,7 +19,7 @@ interface SubscriptionStore {
 
 Backed by a plain JSON-serializable array persisted through the plugin's own `loadData()`/`saveData()`; this feature only needs a `load: () => Promise<Subscription[]>` / `save: (subs: Subscription[]) => Promise<void>` pair injected at construction, so it has no direct dependency on the `Plugin` instance itself. Because `loadData()`/`saveData()` is a single shared JSON blob also holding 001's `PluginSettings`, the injected `load`/`save` MUST be read-modify-write adapters over `{ settings: PluginSettings; subscriptions: Subscription[] }` (research.md Decision 15) — `subscriptionStore.ts` itself only ever sees its own `Subscription[]` slice and stays unaware that `PluginSettings` exists in the same object.
 
-**`register` is idempotent on `(type, value)`** (FR-001, Clarification 2026-07-06): before creating anything, it checks `list()` for an existing subscription with the same `type` and `value`; if found, that existing subscription is returned as-is and `input.label`/`input.checkIntervalHours` are ignored. `input.label` defaults to `input.value` when omitted. This is also what keeps `(type, value)` a safe, collision-free key for the scheduler's in-flight guard (Decision 14) — two subscriptions can never share a `(type, value)` pair.
+**`register` rejects an empty/whitespace-only value** (FR-025, Clarification 2026-07-06): `input.value.trim().length === 0` throws before anything else runs — no idempotency check, no persistence. **`register` is idempotent on `(type, value)`** (FR-001, Clarification 2026-07-06): before creating anything, it checks `list()` for an existing subscription with the same `type` and `value`; if found, that existing subscription is returned as-is and `input.label`/`input.checkIntervalHours` are ignored. `input.label` defaults to `input.value` when omitted. This is also what keeps `(type, value)` a safe, collision-free key for the scheduler's in-flight guard (Decision 14) — two subscriptions can never share a `(type, value)` pair.
 
 ## `PluginSettings` extension (FR-020)
 
@@ -41,12 +41,12 @@ Not a stored type — derived per run:
 
 ```ts
 interface CollectionWindow {
-  from: number; // epoch ms; Subscription.lastCheckedAt, or (now - 24h) when null (Clarification 2026-07-05)
+  from: number; // epoch ms; Subscription.lastCheckedAt, or (now - 24h) when null (Clarification 2026-07-05); clamped to never exceed `to` (research.md Decision 29)
   to: number;   // epoch ms; the moment this check/catch-up started
 }
 ```
 
-Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`.
+Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`. If the system clock has moved backward such that `lastCheckedAt` is after `now`, `from` is clamped to `now` (`from = Math.min(lastCheckedAt ?? now - 24h, now)`), collapsing to an empty window rather than sending a provider an inverted range (FR-024).
 
 ## Provider response intermediate shapes
 
@@ -55,7 +55,10 @@ These exist only long enough to be mapped into a `PaperCandidate` (001) — they
 **Shared helper**: `stripArxivVersion(rawId: string): string` (defined once in `types.ts`, T003) strips a trailing `vN` suffix. Both `arxivParser.ts` and `semanticScholarParser.ts` call it — never each implement their own version-stripping — so a directly-collected paper's `sourceId` and any reference *to that same paper* arriving via Semantic Scholar enrichment always produce byte-identical `arxiv:`-scheme strings, which is what graph edge matching (006, exact `sourceId` equality) depends on.
 
 ```ts
-// arxivParser.ts — one per <entry> in the Atom feed, produced by parseArxivEntry (research.md Decision 25)
+// arxivParser.ts — one per <entry> in the Atom feed, produced by parseArxivEntry
+// (research.md Decision 25), which returns undefined (never throws) for an entry
+// too structurally incomplete to build one at all — e.g. no extractable <id>
+// (FR-023, research.md Decision 28) — filtered out by every caller, not propagated.
 interface ArxivEntry {
   arxivId: string;        // VERSION-STRIPPED base id (e.g. "2301.12345", never "2301.12345v2") via stripArxivVersion(); used to build sourceId = `arxiv:${arxivId}` (research.md Decision 13)
   title: string;
@@ -139,13 +142,17 @@ interface PipelineHooks {
   alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
 }
 
-// runCollectionPass(candidates, hooks, summarizationEnabled, semanticScholarApiKey) —
-// note enrichment is NOT a PipelineHooks field; runCollectionPass calls
-// enrichFromSemanticScholar internally and threads semanticScholarApiKey (FR-020)
-// straight through to it. Only summarize/persist/alreadyPersisted are caller-injected.
+// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey) —
+// the last two are FUNCTIONS, called live each time, never captured booleans/strings
+// (research.md Decision 26, FR-021) — see below. Note enrichment is NOT a
+// PipelineHooks field; runCollectionPass calls enrichFromSemanticScholar internally
+// and threads getSemanticScholarApiKey()'s result (FR-020) straight through to it.
+// Only summarize/persist/alreadyPersisted are caller-injected.
 ```
 
-Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `PluginSettings.summarizationEnabled` (001) is true; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).
+Injected, not imported — `pipeline.ts` calls exactly these two hooks in order (summarize, if present and `isSummarizationEnabled()` is `true` at that moment; then persist, passing the `summarize` result straight through as `persist`'s second argument) and implements neither (research.md Decision 10). A `summarize` rejection/timeout is caught and treated as "no summary" — `persist` is still called, with `summary` simply omitted/`undefined` (research.md Decision 22; this is what "004's abstract fallback applies and the paper is still saved" in FR-017 actually means at the call-signature level).
+
+**Live re-check after `summarize` resolves** (research.md Decision 26, FR-021): `isSummarizationEnabled()` is called again right after `hooks.summarize` resolves, not just before calling it. If summarization was turned off in the meantime, the result is discarded (`summary` still passed as `undefined`) — this is how this feature satisfies 004's own FR-009 ("discarding any in-flight generation"), since 004 itself has no way to know the setting changed after it was invoked. `main.ts` (T020) wires both getters as `() => this.settings.X`, read through the plugin instance at call time, never a value captured into a local variable when the scheduler was constructed during `onload`.
 
 **`runSubscriptionCheck`** (research.md Decision 24) is the composition function this feature ships as `startScheduler`'s `runCheck` dependency: `queryArxiv` → `parseArxivEntry` (per already-parsed entry — not `parseArxivAtom`, which takes a whole document; research.md Decision 25) → `runCollectionPass`. No task before this composed it — earlier drafts of this data model implicitly assumed `runCheck` existed without any task actually building it.
 
@@ -159,7 +166,7 @@ interface ScheduledCheckState {
 }
 ```
 
-The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently. It is keyed by a `type:value` string, not the `Subscription` object itself, because `getSubscriptions()` is not guaranteed to return the same object instances across separate calls (research.md Decision 14).
+The scheduler introduces no new *persisted* entity: due-ness is a pure function of a `Subscription`'s own existing fields (001) and the current time. `inFlight` is purely in-memory, reset empty on every load, and exists only to stop the catch-up pass and a recurring tick from invoking `runCheck` for the same subscription concurrently. It is keyed by a `type:value` string, not the `Subscription` object itself, because `getSubscriptions()` is not guaranteed to return the same object instances across separate calls (research.md Decision 14). When multiple subscriptions are due in the same pass, `startScheduler` processes them one after another (`for...of` + `await`), never concurrently (FR-022, research.md Decision 27) — `inFlight` therefore never has more than one entry added at the exact same instant in practice, though the guard itself would still be correct even if that changed.
 
 ## Cross-entity notes
 

@@ -69,7 +69,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 - If summary generation fails or takes too long, note/record creation MUST NOT be blocked — it falls back to the original abstract, and the paper is still saved.
 - If credentials are entered incorrectly, the user is informed rather than left with silent failures.
 - If the generated summary is too short or empty, it falls back to the original abstract.
-- If the feature is turned off while a generation is in flight, the in-flight result is discarded and the note is completed from the abstract; no other feature stops working because this one is off.
+- If the feature is turned off while a generation is in flight, the in-flight result is discarded and the note is completed from the abstract; no other feature stops working because this one is off. This feature has no polling or cancellation mechanism of its own — see the Assumptions note on FR-009 for who actually implements this.
 - Whether a paper is "uncited" is read from its canonical record's citation count (0 = uncited). Because collection (002) collapses an un-enriched paper's unknown citation count to 0 on promotion, 002 enriches before promotion when this feature is on (see 002 FR-016), so a 0 seen here means "confirmed uncited". If citation data is genuinely unavailable, the paper is treated as not qualifying for future-directions text (summary only).
 
 ## Requirements *(mandatory)*
@@ -84,7 +84,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 - **FR-006**: The user MUST be able to specify which provider generates summaries and supply any required credentials in settings.
 - **FR-007**: If generation fails, times out, or returns text that is empty or too short, the feature MUST fall back to the original abstract and still complete note/record creation.
 - **FR-008**: If credentials are invalid, the user MUST be informed.
-- **FR-009**: Turning the feature off MUST prevent any further summarization calls, including discarding any in-flight generation.
+- **FR-009**: Turning the feature off MUST prevent any further summarization calls, including discarding any in-flight generation. (See Assumptions: this feature has no scheduler/poller of its own, so the caller — 002 — is what actually detects the setting change and performs the discard.)
 
 ### Key Entities
 
@@ -104,6 +104,7 @@ As a user, I want to choose which provider generates summaries and enter the req
 
 - Citation status ("uncited" = citation count 0) is derived from the paper's canonical record, populated by collection (002) or refresh (005). Its reliability depends on 002 enriching the paper before promotion; per 002 FR-016, when this feature is on, enrichment precedes promotion so a 0 is a confirmed count, not an un-enriched placeholder.
 - This feature does not self-trigger: the collection pipeline (002) invokes it (when enabled) *before* a paper is persisted, and its generated text is handed to 003 as part of a single persist. It is the only place summarization calls are made, analogous to how 002 is the only place collection calls are made.
+- **FR-009's enable/disable gate and in-flight discard are implemented by the caller, not by this feature.** Because this feature is only ever invoked synchronously by 002 (it has no background poller, timer, or cancellation token of its own), it cannot by itself detect a mid-flight settings change. 002 satisfies FR-009 on this feature's behalf by reading `summarizationEnabled` and the provider credentials live (via getter functions) both immediately before calling this feature and again immediately after it resolves, discarding the result if the setting flipped off in between (002 `specs/002-subscription-paper-collection/spec.md` FR-021, `research.md` Decision 26). Any other future caller of this feature (e.g. 005's manual refresh) must implement the same live-read-and-discard pattern itself.
 
 ## Open Questions
 
