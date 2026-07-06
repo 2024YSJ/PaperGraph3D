@@ -40,7 +40,7 @@ As the developer building the on-screen display, I want to receive already-organ
 - If a note records a citation to a paper that doesn't exist in the vault, that connection is ignored or handled separately, and conversion still succeeds.
 - If a single record is malformed and required information can't be read, the whole conversion MUST NOT fail — that record is skipped and the rest are converted.
 - If two records reference each other (a citation cycle), both directional connections are produced; conversion does not loop or fail.
-- Nodes carry enough for the display feature to distinguish uncited papers (e.g., zero inbound connections), but this feature only produces data — it applies no visual styling.
+- Nodes carry enough for the display feature to distinguish uncited papers — via each node's `citationCount`/`citationsKnown` fields (FR-002a), never by counting a node's inbound graph connections, since a paper's real-world citation count is independent of how many of its citing papers happen to be collected in this particular vault — but this feature only produces data, it applies no visual styling.
 
 ## Requirements *(mandatory)*
 
