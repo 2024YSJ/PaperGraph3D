@@ -69,6 +69,7 @@ src/
 ├── models/                       # existing (001) — Subscription, Paper, PaperCandidate, PluginSettings; read, not modified
 └── collection/                   # NEW — this feature's entire footprint
     ├── subscriptionStore.ts       # Subscription[] CRUD (register/list/delete/enable/setInterval) + persistence read/write hook; the settings-screen UI (008) calls this, it builds no UI itself
+    ├── types.ts                   # shared in-memory intermediate types (CollectionWindow, ArxivEntry, SemanticScholarPaper, EnrichmentOutcome, CollectionRunState, PipelineHooks) imported by the files below
     ├── arxivClient.ts             # arXiv Atom XML query + response fetch (requestUrl)
     ├── semanticScholarClient.ts   # Semantic Scholar JSON query + response fetch (requestUrl), enrichment lookups
     ├── arxivParser.ts             # Atom XML -> PaperCandidate (citationCount/references left undefined)
@@ -76,9 +77,8 @@ src/
     ├── enrichment.ts              # arXiv-ID-only identity matching (no title/author fallback); terminal-absence vs transient-failure classification
     ├── promotion.ts               # PaperCandidate -> Paper gate (delegates to 001's toPaper()/isValidPaper()), citationsKnown bookkeeping
     ├── dedupe.ts                  # per-run sourceId dedupe across subscriptions/overlapping windows
-    ├── batchQueue.ts              # sequential, non-blocking processing of a discovered batch
     ├── scheduler.ts               # per-subscription next-check timers + single catch-up-on-load pass; owns lastCheckedAt advancement
-    └── pipeline.ts                # per-paper orchestration: enrich -> (hook) summarize -> hand off to (hook) persist
+    └── pipeline.ts                # per-paper orchestration: enrich -> (hook) summarize -> hand off to (hook) persist; also owns the sequential, non-blocking batch loop (runCollectionPass) over a discovered batch
 ```
 
 **Structure Decision**: Single project (no frontend/backend split). All new code lives under a new `src/collection/` directory, one file per responsibility, matching the constitution's single-responsibility module rule and mirroring 001's `src/models/` precedent. `src/main.ts` gains only the two lines needed to start/stop the scheduler through `registerInterval`; no other existing file is modified. `pipeline.ts` calls into 003 (persistence) and 004 (summarization) through narrow function-call hooks defined in this feature's contract, not through direct imports of their internals, so this feature can be implemented and tested (with stub hooks) before 003/004 exist. `subscriptionStore.ts` owns subscription CRUD and persistence (per 008's clarification that 008 builds only the settings-screen UI and calls into the feature that owns the underlying data); this feature's own "management" User Story is therefore satisfied by these functions alone, with no UI, exactly like 001's data-only-no-UI precedent.

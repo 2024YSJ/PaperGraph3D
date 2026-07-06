@@ -120,10 +120,18 @@ const ARXIV_PAGE_SIZE = 100;        // max_results per request (research.md Deci
 const ARXIV_MAX_PAGES = 10;         // safety cap: 1,000 entries per subscription per check
 const ARXIV_INTER_PAGE_DELAY_MS = 3_000; // arXiv's own requested rate-limit spacing
 
+// Pure, network-free helper — exported specifically so query construction (quote-stripping,
+// UTC date formatting, URL encoding) can be verified without a live network call.
+export function buildArxivSearchUrl(
+  subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
+  window: { from: number; to: number },
+  page: { start: number; maxResults: number },
+): string; // fully-formed, already-encoded arXiv API URL
+
 export function queryArxiv(
   subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
   window: { from: number; to: number },
-): Promise<{ entries: unknown[]; truncated: boolean }>; // entries are raw Atom <entry> DOM nodes, consumed only by arxivParser.ts
+): Promise<{ entries: unknown[]; truncated: boolean }>; // entries are raw Atom <entry> DOM nodes, consumed only by arxivParser.ts; internally pages by calling buildArxivSearchUrl once per page
 
 export function fetchSemanticScholarPaper(
   arxivId: string,
@@ -133,8 +141,8 @@ export function fetchSemanticScholarPaper(
 
 **Behavior guarantees**:
 - `queryArxiv` builds a `search_query` combining the subscription's type-specific clause (`all:"<value>"` / `au:"<value>"` / `cat:<value>`) with `` AND submittedDate:[<window.from> TO <window.to>] `` (arXiv's date-range syntax; research.md Decision 11), and pages internally with `start`/`max_results=ARXIV_PAGE_SIZE` until a page returns fewer than `ARXIV_PAGE_SIZE` entries (fully covered) or `ARXIV_MAX_PAGES` is reached, inserting `ARXIV_INTER_PAGE_DELAY_MS` between successive page requests.
-- Before being embedded in `search_query`, `subscription.value` has any literal `"` characters stripped (arXiv's phrase-delimiter syntax), and the fully-assembled `search_query` string is passed through `encodeURIComponent` before being placed in the request URL (research.md Decision 18) — a value containing spaces, punctuation, or a stray quote character never produces a malformed or hijacked query.
-- `window.from`/`window.to` are formatted into arXiv's `YYYYMMDDTTTT` syntax using UTC-based `Date` accessors only (`getUTCFullYear()` etc., never `getFullYear()`/local-timezone accessors) — research.md Decision 19. This keeps the requested window aligned to what `CollectionWindow`'s epoch-ms bounds actually mean, regardless of the host machine's local timezone.
+- `buildArxivSearchUrl` is the sole place `search_query` is assembled: it strips any literal `"` from `subscription.value` before embedding it (arXiv's phrase-delimiter syntax), formats `window.from`/`window.to` into arXiv's `YYYYMMDDTTTT` syntax using UTC-based `Date` accessors only (`getUTCFullYear()` etc., never `getFullYear()`/local-timezone accessors — research.md Decision 19), and passes the fully-assembled query string through `encodeURIComponent` before placing it in the returned URL (research.md Decision 18). Being a pure function (no `requestUrl` call), it is directly testable without a network stub.
+- `queryArxiv` calls `buildArxivSearchUrl` once per page (varying only `page.start`) and is otherwise responsible only for the `requestUrl` call, pagination loop, and inter-page delay.
 - `truncated: true` is returned exactly when the `ARXIV_MAX_PAGES` cap was hit before the window was fully covered — this is this feature's own self-imposed limit (per arXiv's own guidance against >1,000-result queries), not a limit arXiv itself documents on how far back a query can reach. The caller surfaces `truncated: true` to the user (FR-014) rather than silently accepting a partially-covered window as complete.
 - `fetchSemanticScholarPaper` calls exactly one endpoint, `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds` — there is no title/author search form (research.md Decision 12). A `404` response and a `429`/network-error response are returned as distinct, typed outcomes — never thrown — so `enrichment.ts` can map `404` to `EnrichmentOutcome.status: 'terminalAbsence'` and `429`/`'networkError'` to a bounded transient retry, without needing to parse an HTTP status out of a caught exception.
 - The raw `entries`/`body` value returned here MUST NOT cross out of `src/collection/` — only `arxivParser.ts`/`semanticScholarParser.ts` may consume it, and only a mapped `PaperCandidate`/enrichment field may leave this directory (FR-008).

@@ -92,6 +92,28 @@ check('candidate sourceId is arxiv-scoped', candidates[0]?.sourceId === 'arxiv:2
 check('sourceId strips the arXiv version suffix (input was v1)', candidates[0]?.sourceId === 'arxiv:2301.12345' && !candidates[0]?.sourceId.includes('v1'));
 ```
 
+### arXiv query construction is UTC-safe and encoding-safe (research.md Decisions 18-19)
+
+```ts
+import { buildArxivSearchUrl } from '../src/collection/arxivClient';
+
+// A date picked so a non-UTC host timezone would shift it to a different calendar day
+// if local-timezone accessors were used by mistake (e.g. UTC+9 rolling 2023-01-01T00:00Z
+// back to 2022-12-31 local time).
+const windowStart = Date.UTC(2023, 0, 1, 0, 0, 0);
+const windowEnd = Date.UTC(2023, 0, 2, 0, 0, 0);
+
+const url = buildArxivSearchUrl(
+  { type: 'keyword', value: 'graph neural network "attention"' },
+  { from: windowStart, to: windowEnd },
+  { start: 0, maxResults: 100 },
+);
+
+check('query date range uses UTC-formatted bounds (20230101/20230102), not shifted by local timezone', url.includes('20230101') && url.includes('20230102'));
+check('embedded quote characters in the subscription value are stripped, not left to break the query', !decodeURIComponent(url).includes('""'));
+check('the assembled query string is URL-encoded (no literal spaces in the URL)', !url.includes(' '));
+```
+
 ### Promotion without enrichment (User Story 4 / Edge Cases)
 
 ```ts
