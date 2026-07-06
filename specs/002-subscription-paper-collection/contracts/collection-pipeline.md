@@ -18,7 +18,7 @@ export interface SubscriptionStoreDeps {
 
 export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
   list(): Subscription[];
-  register(input: { type: SubscriptionType; value: string; label: string; checkIntervalHours?: CheckIntervalHours }): Promise<Subscription>;
+  register(input: { type: SubscriptionType; value: string; label?: string; checkIntervalHours?: CheckIntervalHours }): Promise<Subscription>;
   remove(subscription: Subscription): Promise<void>;
   setEnabled(subscription: Subscription, enabled: boolean): Promise<void>;
   setCheckInterval(subscription: Subscription, requested: number): Promise<CheckIntervalHours>;
@@ -27,7 +27,8 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
 ```
 
 **Behavior guarantees**:
-- `register` always produces a `Subscription` that passes 001's `isValidSubscription`; when `checkIntervalHours` is omitted, `DEFAULT_CHECK_INTERVAL_HOURS` (001) is used (FR-001).
+- `register` always produces a `Subscription` that passes 001's `isValidSubscription`; when `checkIntervalHours` is omitted, `DEFAULT_CHECK_INTERVAL_HOURS` (001) is used, and when `label` is omitted it defaults to `input.value` (FR-001).
+- `register` is idempotent on `(type, value)`: if a subscription with that exact `type` and `value` already exists, it is returned unchanged and `input.label`/`input.checkIntervalHours` are ignored — no duplicate is ever created (FR-001, SC-009).
 - `remove` and `setEnabled` take effect immediately in `list()`'s next result and are persisted via `deps.save` before resolving — a caller awaiting `remove`/`setEnabled` is guaranteed the change is durable, not just in-memory (FR-002/FR-010).
 - `setCheckInterval` delegates to 001's `assignCheckInterval`; a disallowed `requested` value leaves the subscription's stored interval unchanged and the returned value reflects what was actually stored (this specific rejection rule is 001's own FR-005, reused here — this feature's own requirement to expose interval-changing at all is FR-002).
 - `recordChecked` never moves a subscription's `lastCheckedAt` backward, and is the only way `lastCheckedAt` changes (FR-006) — `scheduler.ts` calls this, nothing else writes to it.
@@ -38,6 +39,8 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
 ```ts
 import type { Plugin } from 'obsidian';
 import type { Subscription } from '../models/subscription';
+
+const SCHEDULER_TICK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (research.md Decision 4)
 
 export interface SchedulerDeps {
   getSubscriptions: () => Subscription[];
@@ -51,13 +54,13 @@ export function startScheduler(plugin: Plugin, deps: SchedulerDeps): void;
 ```
 
 **Behavior guarantees**:
-- `startScheduler` registers exactly one recurring interval via `plugin.registerInterval(...)` (constitution Principle II) — it never calls the global `setInterval` directly, and requires no separate `stop()` call; `onunload` cleanup is automatic.
-- On the plugin's first load after `startScheduler` runs, it performs exactly one catch-up pass: for every subscription where `enabled === true`, `runCheck` is invoked once with `window.from = subscription.lastCheckedAt ?? (now - 24 * 3_600_000)` and `window.to = now` (FR-004, Clarification 2026-07-05).
-- On every subsequent recurring tick, `runCheck` is invoked for exactly the subscriptions that are both `enabled` and due (`now >= (lastCheckedAt ?? -Infinity) + checkIntervalHours * 3_600_000`) (FR-003).
-- A subscription whose `` `${type}:${value}` `` key already has a `runCheck` in flight (from either the catch-up pass or a prior tick that hasn't settled yet) is never passed to `runCheck` again until the in-flight call settles (research.md Decision 14) — this applies across both the catch-up pass and every recurring tick, not just within one of them. The guard is keyed by `type`+`value`, never by `Subscription` object identity, since `getSubscriptions()` may return fresh objects on each call.
-- `onSubscriptionChecked` is called if and only if `runCheck` resolved without throwing, and is never called with a `checkedThrough` value greater than the `window.to` actually passed to `runCheck` (FR-006) — a thrown/rejected `runCheck` leaves the subscription's checked-through time untouched.
-- A disabled subscription is never passed to `runCheck`, on any tick or on the catch-up pass (FR-010).
-- When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) before moving on to the next subscription; the failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When a catch-up/tick's provider response reports `truncated: true`, `onFailure(subscription, 'truncated')` is called instead (FR-014) — these are the two distinct notice reasons T016/T018 implement, each shown via Obsidian's `Notice` API (research.md Decision 16), not a custom modal or status-bar item.
+- `startScheduler` registers exactly one recurring interval via `plugin.registerInterval(...)`, firing every `SCHEDULER_TICK_INTERVAL_MS` (15 minutes) (constitution Principle II) — it never calls the global `setInterval` directly, and requires no separate `stop()` call; `onunload` cleanup is automatic. Bounding the tick to 15 minutes bounds how late a due check can fire relative to its exact due time to a small fraction of even the shortest allowed check interval (6 hours).
+- On the plugin's first load after `startScheduler` runs, it performs exactly one catch-up pass: for every subscription where `enabled === true`, `runCheck` is invoked once with `window = computeCollectionWindow(subscription, now)` (i.e. `window.from = subscription.lastCheckedAt ?? (now - 24 * 3_600_000)`, `window.to = now`) (FR-004, Clarification 2026-07-05).
+- On every subsequent recurring tick, `runCheck` is invoked — with the same `window = computeCollectionWindow(subscription, now)` the catch-up pass uses — for exactly the subscriptions that are both `enabled` and due (`now >= (lastCheckedAt ?? -Infinity) + checkIntervalHours * 3_600_000`) (FR-003). There is exactly one window-computation code path shared by both call sites (research.md Decision 5).
+- A subscription whose `` `${type}:${value}` `` key already has a `runCheck` in flight (from either the catch-up pass or a prior tick that hasn't settled yet) is never passed to `runCheck` again until the in-flight call settles (research.md Decision 14) — this applies across both the catch-up pass and every recurring tick, not just within one of them. The guard is keyed by `type`+`value`, never by `Subscription` object identity, since `getSubscriptions()` may return fresh objects on each call; this key is guaranteed collision-free because `subscriptionStore.register` (contracts § subscriptionStore.ts) never allows two subscriptions to share a `(type, value)` pair.
+- `onSubscriptionChecked` is called if and only if `runCheck` resolved without throwing, and is never called with a `checkedThrough` value greater than the `window.to` actually passed to `runCheck` (FR-006) — a thrown/rejected `runCheck` leaves the subscription's checked-through time untouched. This applies identically whether the subscription was still `enabled` at the moment `runCheck` settled or was disabled while the check was in flight — an in-flight check is never aborted by a disable, and its `lastCheckedAt` update still applies on success (FR-010, Clarification 2026-07-06); only *starting* a new `runCheck` is what a disable prevents.
+- A disabled subscription is never *newly* passed to `runCheck`, on any tick or on the catch-up pass (FR-010) — this only prevents starting new checks, not completing an already-started one (see previous bullet).
+- When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) before moving on to the next subscription; the failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When a catch-up/tick's provider response reports `truncated: true`, `onFailure(subscription, 'truncated')` is called instead (FR-014) — these are the two distinct notice reasons T016 implements, each shown via Obsidian's `Notice` API (research.md Decision 16), not a custom modal or status-bar item. Because the catch-up pass and a regular tick both invoke the same `runCheck`/`onFailure` wiring (no separate implementation per call site — research.md Decision 5), the truncated-window notice fires identically regardless of which one produced it; T018 only verifies this shared behavior surfaces correctly during catch-up, it does not re-implement it.
 - The catch-up pass (bullet above) runs synchronously as part of `startScheduler`'s own execution during `onload` — no artificial startup delay is introduced before it begins (research.md Decision 17).
 
 ## `src/collection/pipeline.ts`
@@ -95,7 +98,7 @@ export type EnrichmentOutcome =
   | { status: 'terminalAbsence' }
   | { status: 'transientFailure' };
 
-export function enrichFromSemanticScholar(candidate: PaperCandidate): Promise<EnrichmentOutcome>;
+export function enrichFromSemanticScholar(candidate: PaperCandidate, apiKey: string | undefined): Promise<EnrichmentOutcome>;
 ```
 
 **Behavior guarantees**:
@@ -135,6 +138,7 @@ export function queryArxiv(
 
 export function fetchSemanticScholarPaper(
   arxivId: string,
+  apiKey: string | undefined, // PluginSettings.semanticScholarApiKey (001 extension, FR-020); omitted from the request when undefined
 ): Promise<{ status: 200; body: unknown } | { status: 404 } | { status: 429 } | { status: 'networkError' }>;
 // body (when status 200) is raw JSON, consumed only by semanticScholarParser.ts. arXiv-ID-only lookup (Clarification 2026-07-06) — no title/author search form.
 ```
@@ -145,4 +149,5 @@ export function fetchSemanticScholarPaper(
 - `queryArxiv` calls `buildArxivSearchUrl` once per page (varying only `page.start`) and is otherwise responsible only for the `requestUrl` call, pagination loop, and inter-page delay.
 - `truncated: true` is returned exactly when the `ARXIV_MAX_PAGES` cap was hit before the window was fully covered — this is this feature's own self-imposed limit (per arXiv's own guidance against >1,000-result queries), not a limit arXiv itself documents on how far back a query can reach. The caller surfaces `truncated: true` to the user (FR-014) rather than silently accepting a partially-covered window as complete.
 - `fetchSemanticScholarPaper` calls exactly one endpoint, `GET /graph/v1/paper/ARXIV:<arxivId>?fields=citationCount,references.paperId,references.externalIds` — there is no title/author search form (research.md Decision 12). A `404` response and a `429`/network-error response are returned as distinct, typed outcomes — never thrown — so `enrichment.ts` can map `404` to `EnrichmentOutcome.status: 'terminalAbsence'` and `429`/`'networkError'` to a bounded transient retry, without needing to parse an HTTP status out of a caught exception.
+- When `apiKey` is a non-empty string, it is sent as an `x-api-key` request header; when `undefined`, the header is omitted entirely and the call behaves exactly as it did before FR-020 (FR-020, research.md Decision 12). This function never reads settings itself — the caller (`enrichment.ts`, ultimately wired from `PluginSettings.semanticScholarApiKey` in `main.ts`) passes the key through explicitly, keeping `semanticScholarClient.ts` free of any dependency on 001's settings shape.
 - The raw `entries`/`body` value returned here MUST NOT cross out of `src/collection/` — only `arxivParser.ts`/`semanticScholarParser.ts` may consume it, and only a mapped `PaperCandidate`/enrichment field may leave this directory (FR-008).

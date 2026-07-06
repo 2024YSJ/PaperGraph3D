@@ -57,11 +57,18 @@ const sub = await store.register({ type: 'keyword', value: 'graph neural network
 check('registering a subscription persists it', saved.length === 1);
 check('default check interval applied', sub.checkIntervalHours === 24);
 
+const noLabelSub = await store.register({ type: 'keyword', value: 'transformer architecture' });
+check('label defaults to value when omitted', noLabelSub.label === 'transformer architecture');
+
+const duplicate = await store.register({ type: 'keyword', value: 'graph neural network', label: 'Something Else', checkIntervalHours: 72 });
+check('registering an existing (type, value) returns the existing subscription, not a new one', saved.length === 2 && duplicate.label === 'GNN' && duplicate.checkIntervalHours === 24);
+
 await store.setEnabled(sub, false);
 check('disabling a subscription persists immediately', (saved[0] as { enabled: boolean }).enabled === false);
 
 await store.remove(sub);
-check('deleting a subscription removes it from the persisted list', saved.length === 0);
+await store.remove(noLabelSub);
+check('deleting subscriptions removes them from the persisted list', saved.length === 0);
 ```
 
 ### Subscription storage never clobbers sibling PluginSettings (research.md Decision 15)

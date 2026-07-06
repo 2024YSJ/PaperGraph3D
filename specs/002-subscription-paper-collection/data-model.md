@@ -9,7 +9,7 @@ No new entity — this is a persistence + CRUD layer over 001's existing `Subscr
 ```ts
 interface SubscriptionStore {
   list(): Subscription[];
-  register(input: { type: SubscriptionType; value: string; label: string; checkIntervalHours?: CheckIntervalHours }): Subscription;
+  register(input: { type: SubscriptionType; value: string; label?: string; checkIntervalHours?: CheckIntervalHours }): Subscription;
   remove(subscription: Subscription): void;
   setEnabled(subscription: Subscription, enabled: boolean): void;
   setCheckInterval(subscription: Subscription, requested: number): void; // delegates to 001's assignCheckInterval
@@ -18,6 +18,22 @@ interface SubscriptionStore {
 ```
 
 Backed by a plain JSON-serializable array persisted through the plugin's own `loadData()`/`saveData()`; this feature only needs a `load: () => Promise<Subscription[]>` / `save: (subs: Subscription[]) => Promise<void>` pair injected at construction, so it has no direct dependency on the `Plugin` instance itself. Because `loadData()`/`saveData()` is a single shared JSON blob also holding 001's `PluginSettings`, the injected `load`/`save` MUST be read-modify-write adapters over `{ settings: PluginSettings; subscriptions: Subscription[] }` (research.md Decision 15) — `subscriptionStore.ts` itself only ever sees its own `Subscription[]` slice and stays unaware that `PluginSettings` exists in the same object.
+
+**`register` is idempotent on `(type, value)`** (FR-001, Clarification 2026-07-06): before creating anything, it checks `list()` for an existing subscription with the same `type` and `value`; if found, that existing subscription is returned as-is and `input.label`/`input.checkIntervalHours` are ignored. `input.label` defaults to `input.value` when omitted. This is also what keeps `(type, value)` a safe, collision-free key for the scheduler's in-flight guard (Decision 14) — two subscriptions can never share a `(type, value)` pair.
+
+## `PluginSettings` extension (FR-020)
+
+The only field this feature adds to 001's baseline (an FR-016-style additive extension, not a modification of anything 001 already fixed):
+
+```ts
+// Added to src/models/settings.ts's PluginSettings by this feature:
+interface PluginSettings {
+  // ...001's existing fields...
+  semanticScholarApiKey?: string; // optional; absent by default; read by semanticScholarClient.ts
+}
+```
+
+Absent (`undefined`) by default — enrichment behaves exactly as already specified (Decisions 7/12) when no key is configured; when present, `semanticScholarClient.ts` includes it as an `x-api-key` request header on every Semantic Scholar call (research.md Decision 12).
 
 ## Collection Window (spec Key Entities)
 
@@ -72,6 +88,7 @@ type EnrichmentOutcome =
 
 function enrichFromSemanticScholar(
   candidate: PaperCandidate,
+  apiKey: string | undefined, // PluginSettings.semanticScholarApiKey (FR-020)
 ): Promise<EnrichmentOutcome>;
 ```
 
@@ -121,5 +138,5 @@ The scheduler introduces no new *persisted* entity: due-ness is a pure function 
 
 ## Cross-entity notes
 
-- This feature never adds fields to `Subscription`/`Paper`/`PluginSettings` (001) — it only reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.summarizationEnabled`, and produces `Paper` values via 001's own `toPaper`.
+- This feature adds exactly one field to 001's baseline, as an FR-016-style additive extension: `PluginSettings.semanticScholarApiKey?: string` (optional; absent by default), read by `semanticScholarClient.ts` (research.md Decision 12, FR-020). It otherwise adds nothing to `Subscription`/`Paper` — it only reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.{summarizationEnabled,semanticScholarApiKey}`, and produces `Paper` values via 001's own `toPaper`.
 - No association object (e.g. "which subscription found which paper") is introduced — per 001's data model, that link is explicitly this feature's concern but is not required to be persisted; a paper's `sourceId` alone is sufficient for the dedup/exists-already checks this feature needs (see `CollectionRunState.alreadyPersisted`).
