@@ -463,25 +463,78 @@ const mixedCandidates = parseArxivAtom(MIXED_ATOM);
 check('the malformed entry is skipped, not thrown, and the well-formed one still parses', mixedCandidates.length === 1 && mixedCandidates[0]?.sourceId === 'arxiv:2301.00002');
 ```
 
-### Every check's query window reaches back at least ANNOUNCEMENT_LAG_MS, even for a very recent lastCheckedAt (FR-041, research.md Decision 38)
+### The frontier window is unaffected by FR-041; the lag re-scan is a wholly separate window (FR-041, research.md Decision 38)
 
 ```ts
-// A subscription checked only 10 minutes ago — far more recent than the 4-day lag constant.
-const recentWindow = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: null }, now);
+import { computeLagOverlapWindow } from '../src/collection/scheduler';
+
+// The frontier window (computeCollectionWindow) is EXACTLY what it was before FR-041 existed —
+// no lag term, no coveredFrom parameter at all. This is what drives lastCheckedAt.
+const frontierOnly = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000 }, now);
 check(
-  "the query window overlaps at least 4 days into the past, not just the 10 minutes since lastCheckedAt (catches arXiv papers not yet announced when the prior check ran)",
-  now - recentWindow.from >= 4 * 24 * 60 * 60 * 1000,
+  'the frontier window is exactly [lastCheckedAt, now] — FR-041 does not widen it',
+  frontierOnly.from === now - 10 * 60 * 1000 && frontierOnly.to === now,
 );
 
-// The lag overlap must not cross below the subscription's own backward floor (coveredFrom) —
-// that territory belongs to backfill, not forward collection's own widening.
-const clampedByFloor = computeCollectionWindow(
+// The lag re-scan is a SEPARATE window computed by a separate function.
+const lagWindow = computeLagOverlapWindow({ lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: null }, now);
+check(
+  "the lag re-scan window reaches at least 4 days into the past, ending at lastCheckedAt (not now) — it re-covers already-checked history, catching arXiv papers not yet announced when the prior check ran",
+  lagWindow !== undefined && now - 10 * 60 * 1000 - lagWindow.from >= 4 * 24 * 60 * 60 * 1000 - 1000 && lagWindow.to === now - 10 * 60 * 1000,
+);
+
+// The lag re-scan must not cross below the subscription's own backward floor (coveredFrom) —
+// that territory belongs to backfill.
+const lagClampedByFloor = computeLagOverlapWindow(
   { lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: now - 6 * 60 * 60 * 1000 }, // floor only 6h back
   now,
 );
 check(
-  'the announcement-lag overlap is clamped at coveredFrom, never reaching further back than the backward floor',
-  clampedByFloor.from === now - 6 * 60 * 60 * 1000,
+  'the lag re-scan is clamped at coveredFrom, never reaching further back than the backward floor',
+  lagClampedByFloor !== undefined && lagClampedByFloor.from === now - 6 * 60 * 60 * 1000,
+);
+
+// A subscription's first check and a clock-backward check have no lag re-scan at all.
+check(
+  'no lag re-scan on a subscription\'s first check (nothing already-checked to re-scan)',
+  computeLagOverlapWindow({ lastCheckedAt: null, coveredFrom: null }, now) === undefined,
+);
+check(
+  'no lag re-scan on a clock-backward check',
+  computeLagOverlapWindow({ lastCheckedAt: now + 1000, coveredFrom: null }, now) === undefined,
+);
+```
+
+### A high-volume subscription's frontier query keeps advancing even when its lag re-scan is truncated every check (FR-041, research.md Decision 38 — the livelock this design specifically avoids)
+
+```ts
+let frontierCalls = 0;
+let lagCalls = 0;
+let lastRecordedThrough: number | undefined;
+const busySub = { ...sub, type: 'keyword' as const, value: 'busy-category', lastCheckedAt: now - 6 * 60 * 60 * 1000, coveredFrom: now - 30 * 24 * 60 * 60 * 1000, enabled: true };
+
+await startScheduler(/* plugin stub */ { registerInterval: (h: number) => h } as never, {
+  getSubscriptions: () => [busySub],
+  runCheck: async (_s, window) => {
+    // Simulate: the frontier window ([lastCheckedAt, now], narrow) always fully covers; the
+    // lag window (wide, ~4 days) always truncates far short of its own `to` — as a real
+    // high-volume category's paging cap would force.
+    const isLagWindow = window.to === busySub.lastCheckedAt;
+    if (isLagWindow) {
+      lagCalls += 1;
+      return { truncated: true, coveredThrough: window.from }; // no progress at all, every time
+    }
+    frontierCalls += 1;
+    return { truncated: false, coveredThrough: window.to };
+  },
+  onSubscriptionChecked: async (_s, checkedThrough) => { lastRecordedThrough = checkedThrough; },
+});
+
+check('the frontier query still ran once (separately from the lag re-scan)', frontierCalls === 1);
+check('the lag re-scan also ran once, and its permanent truncation did not throw or block the frontier', lagCalls === 1);
+check(
+  "lastCheckedAt was recorded from the frontier's own coveredThrough (== now), never affected by the lag re-scan's total non-progress — this is what prevents the livelock a single combined query would suffer",
+  lastRecordedThrough === now,
 );
 ```
 

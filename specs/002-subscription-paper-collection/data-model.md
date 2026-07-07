@@ -13,11 +13,10 @@ interface SubscriptionStore {
   remove(subscription: Subscription): void;
   setEnabled(subscription: Subscription, enabled: boolean): void;
   setCheckInterval(subscription: Subscription, requested: number): void; // delegates to 001's assignCheckInterval
-  recordChecked(subscription: Subscription, checkedThrough: number): void; // used by scheduler.ts, FR-006
-  recordFirstCoverage(subscription: Subscription, from: number): void;     // first forward check records coveredFrom = window.from (registration - 24h), once (FR-035)
+  recordChecked(subscription: Subscription, checkedThrough: number, windowFrom: number): void; // used by scheduler.ts, FR-006; ALSO atomically initializes coveredFrom = windowFrom on a subscription's first successful check (FR-035) — see Behavior guarantees
   requestBackfill(subscription: Subscription, targetFrom: number): void;   // validate (FR-038), set backfillState, persist, fire onBackfillRequested? (FR-033)
   recordBackfillProgress(subscription: Subscription, cursor: number): void; // advance persisted cursor; on completion (cursor >= coveredFrom) lower coveredFrom = targetFrom and clear backfillState (FR-036)
-  cancelBackfill(subscription: Subscription): void;                        // lower coveredFrom to the current cursor (credit partial progress) and clear backfillState, without touching lastCheckedAt or enabled (FR-043)
+  cancelBackfill(subscription: Subscription): void;                        // clear backfillState WITHOUT touching coveredFrom (crediting a cancelled run's cursor would mark its unwalked middle span as falsely covered, FR-043) or lastCheckedAt/enabled
 }
 ```
 
@@ -52,13 +51,34 @@ interface CollectionWindow {
 }
 ```
 
-Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`. The computation is three-branched, evaluated in this order:
+Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`. This is the **frontier** window and is unaffected by the FR-041 lag re-scan (below) — it drives `lastCheckedAt` and only `lastCheckedAt`. The computation:
 
-1. **Clock backward** (`lastCheckedAt !== null && lastCheckedAt > now`): `{ from: now, to: now }` — an empty window (FR-024). Nothing below applies; the announcement-lag overlap never overrides this.
-2. **First check** (`lastCheckedAt === null`): `{ from: now - 24h, to: now }` — the FR-030 first-window bound alone, with **no** announcement-lag widening. There is no already-checked span for the overlap to re-widen into, and applying it here would let a brand-new subscription pull in up to `ANNOUNCEMENT_LAG_MS` of pre-registration history, defeating FR-030's flood-prevention purpose.
-3. **Ordinary check** (`lastCheckedAt` set, clock normal): `{ from: Math.max(Math.min(lastCheckedAt, now - ANNOUNCEMENT_LAG_MS), coveredFrom ?? -Infinity), to: now }` — the FR-041 trailing overlap widens the query window up to `ANNOUNCEMENT_LAG_MS` earlier than `lastCheckedAt` (since arXiv's announcement delay means a paper's `submittedDate` can precede its actual searchability by several days), but the `Math.max(..., coveredFrom ?? -Infinity)` clamp prevents that widening from ever crossing below the subscription's own backward floor — the overlap augments an *already-checked* span, it must never dip into territory only a backfill (or nothing yet) has covered.
+- **Clock backward** (`lastCheckedAt !== null && lastCheckedAt > now`): `{ from: now, to: now }` — an empty window (FR-024).
+- **First check** (`lastCheckedAt === null`): `{ from: now - 24h, to: now }` — the FR-030 first-window bound.
+- **Ordinary check** (`lastCheckedAt` set, clock normal): `{ from: lastCheckedAt, to: now }`.
 
-This is a **query-window-only** adjustment — it never changes what `lastCheckedAt` itself is set to (still the actual moment searched through, FR-006); a paper re-fetched within the overlap is deduplicated (FR-009) like any other overlapping-window duplicate. The subsequent `recordChecked(subscription, now)` then no-ops (its backward-guard leaves `lastCheckedAt` unchanged rather than moving it to the earlier `now`), so no already-covered span is re-searched when the clock returns to normal — this is the FR-024 behavior, superseding an earlier design that advanced `lastCheckedAt` backward.
+The subsequent `recordChecked(subscription, checkedThrough, windowFrom)` (see Subscription store below) no-ops on a clock-backward pass (its backward-guard leaves `lastCheckedAt` unchanged rather than moving it to the earlier `now`), so no already-covered span is re-searched when the clock returns to normal — this is the FR-024 behavior, superseding an earlier design that advanced `lastCheckedAt` backward.
+
+## Lag Overlap Window (FR-041)
+
+A **second**, independent window — not a `CollectionWindow` and not fed into `recordChecked` at all:
+
+```ts
+// Undefined when there is nothing meaningful to re-scan: a subscription's first check
+// (no already-checked span exists yet) or a clock-backward check (empty frontier window).
+function computeLagOverlapWindow(
+  subscription: Pick<Subscription, 'lastCheckedAt' | 'coveredFrom'>,
+  now: number,
+): { from: number; to: number } | undefined {
+  if (subscription.lastCheckedAt === null || subscription.lastCheckedAt > now) return undefined;
+  return {
+    from: Math.max(subscription.lastCheckedAt - ANNOUNCEMENT_LAG_MS, subscription.coveredFrom ?? -Infinity),
+    to: subscription.lastCheckedAt,
+  };
+}
+```
+
+An ordinary check's tick-processing logic (scheduler.ts) runs this **after** the frontier query succeeds: it computes this window, and — if defined — issues a *second* `runCheck` call over it, discarding the result entirely (no `recordChecked`, no cursor, nothing persisted). This is what lets a high-volume subscription's frontier query keep advancing every check regardless of whether the lag re-scan's own paging cap is exceeded — the two queries are fully decoupled, so the lag re-scan being truncated (as it often will be for a busy category, since `ANNOUNCEMENT_LAG_MS` = 4 days of a high-volume category can itself exceed the paging cap) never stalls forward progress; it is simply retried, over a window that has itself shifted forward, on the next check. `Math.max(..., coveredFrom ?? -Infinity)` keeps the re-scan from crossing into territory only a backfill (or nothing yet) has covered.
 
 ## Subscription backfill state (User Story 5)
 
@@ -69,7 +89,7 @@ Backfill needs two pieces of per-subscription state that forward collection does
 interface Subscription {
   // ...001's existing fields...
   coveredFrom?: number | null;   // backward floor: the oldest instant this subscription's collection has covered (epoch ms).
-                                 // First recorded at the first forward check as that window's `from` (registration - 24h) via recordFirstCoverage; lowered by a completed backfill. Absent/null on a subscription that has never been checked.
+                                 // First recorded atomically by recordChecked on a subscription's first successful check, as that check's window.from (registration - 24h); lowered by a completed backfill. Absent/null on a subscription that has never successfully checked.
   backfillState?: { targetFrom: number; cursor: number } | null; // present only while a backfill is active.
                                  // cursor starts at targetFrom and advances upward toward coveredFrom; both epoch ms. Absent/null when no backfill is in progress.
 }
@@ -92,10 +112,10 @@ function computeBackfillWindow(
 ```
 
 **Store operations** (contracts § subscriptionStore.ts has the exact signatures):
-- `recordFirstCoverage(subscription, from)` — called by the scheduler after a subscription's *first* forward check **successfully settles** to initialize `coveredFrom = window.from` (registration − 24h). Recording only on success avoids stranding the span between a failed first attempt's earlier `from` and its later retry's `from` (mirrors FR-006). Idempotent: a no-op once `coveredFrom` is already set, so it never raises the floor.
+- `recordChecked(subscription, checkedThrough, windowFrom)` writes `lastCheckedAt = checkedThrough` (subject to its backward-guard, FR-024) and, **in the same store write**, initializes `coveredFrom = windowFrom` if and only if `coveredFrom` is not already set — a single atomic persist, not two separate calls. Folding first-coverage initialization into `recordChecked` (rather than a separate `recordFirstCoverage` callback invoked after it) removes a window where a crash between two writes could leave `lastCheckedAt` set but `coveredFrom` still unset, which would let the FR-041 lag re-scan's `coveredFrom ?? -Infinity` clamp fail open and reach past what FR-030 ever intended a fresh subscription's floor to be. Since `recordChecked` only runs after a check *succeeds* (the scheduler never calls it on failure), `coveredFrom`'s first value is always a successful check's own `window.from` — never a failed attempt's, avoiding the same stranded-span problem FR-006 already guards against for `lastCheckedAt` itself. Idempotent on the `coveredFrom` half: once set, it never raises the floor.
 - `requestBackfill(subscription, targetFrom)` — validates per FR-038 (reject empty/future/non-date; no-op when `targetFrom >= coveredFrom`), sets `backfillState = { targetFrom, cursor: targetFrom }` (or, when a further-past request arrives mid-run, lowers **both** `targetFrom` **and** `cursor` to the new value so the newly-added older span is actually walked rather than skipped-yet-marked-covered — dedup filters the re-walked prefix, FR-009), persists, and fires an optional `onBackfillRequested?` callback that `main.ts` wires to the scheduler's `backfillNow` (parallel to how `onRegistered` wires to `checkNow`).
 - `recordBackfillProgress(subscription, cursor)` — advances the persisted `cursor` after a pass; on completion (`cursor >= coveredFrom`) it lowers `coveredFrom = backfillState.targetFrom` and clears `backfillState`, so a later still-earlier request chains further down without overlap. No-op (and never re-creates `backfillState`) if the subscription is gone or its `backfillState` is already `null` — the latter covers the race where `cancelBackfill` cleared state while this pass's `runCheck` was still in flight.
-- `cancelBackfill(subscription)` — user-initiated stop, distinct from the disable/re-enable pause of FR-037: lowers `coveredFrom` to the *current* `backfillState.cursor` (crediting whatever the run had actually collected, same as a natural completion would but stopped short of `targetFrom`) and clears `backfillState`. Does not touch `lastCheckedAt` or `enabled` (FR-043). A no-op if no `backfillState` is active.
+- `cancelBackfill(subscription)` — user-initiated stop, distinct from the disable/re-enable pause of FR-037: clears `backfillState` and **leaves `coveredFrom` unchanged** — it must not be set to the current `cursor`, because a cancelled run's walked span `[targetFrom, cursor]` is not contiguous with `coveredFrom`'s existing floor (only a natural completion connects them), so crediting it would falsely mark the unwalked middle span as covered and lose it permanently. Already-persisted papers from the cancelled run are unaffected (not lost); a later `requestBackfill` at the same `targetFrom` simply re-walks from scratch, with dedup (FR-009) absorbing the re-fetch of the already-collected prefix. Does not touch `lastCheckedAt` or `enabled` (FR-043). A no-op if no `backfillState` is active.
 
 Backfill never calls `recordChecked` and never reads `lastCheckedAt` — the two watermarks are fully disjoint (FR-035).
 

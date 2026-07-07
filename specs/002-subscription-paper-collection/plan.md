@@ -70,7 +70,7 @@ src/
 ├── main.ts                       # existing — gains scheduler start wiring in onload only (no onunload code — registerInterval auto-cleans)
 ├── models/                       # existing (001) — Paper/PaperCandidate read-only; subscription.ts gains two optional fields (coveredFrom — used by forward collection's FR-041 clamp, added in Foundational; backfillState — backfill-only, added with US5), both FR-016-style additive extensions; settings.ts gains one optional field semanticScholarApiKey (FR-020, FR-016 extension)
 └── collection/                   # NEW — this feature's entire footprint
-    ├── subscriptionStore.ts       # Subscription[] CRUD (register/list/delete/enable/setInterval) + backfill ops (requestBackfill/recordBackfillProgress/recordFirstCoverage/cancelBackfill) + persistence read/write hook; the settings-screen UI (008) calls this, it builds no UI itself
+    ├── subscriptionStore.ts       # Subscription[] CRUD (register/list/delete/enable/setInterval), recordChecked (atomically initializes coveredFrom on a first success, FR-035/FR-041) + backfill ops (requestBackfill/recordBackfillProgress/cancelBackfill) + persistence read/write hook; the settings-screen UI (008) calls this, it builds no UI itself
     ├── types.ts                   # shared in-memory intermediate types (CollectionWindow, BackfillWindow, ArxivEntry, SemanticScholarPaper, EnrichmentOutcome, CollectionRunState, PipelineHooks) imported by the files below
     ├── arxivClient.ts             # arXiv Atom XML query + response fetch (requestUrl)
     ├── semanticScholarClient.ts   # Semantic Scholar batch enrichment fetch (requestUrl; POST /paper/batch, plus a single-paper GET retained for 005)
