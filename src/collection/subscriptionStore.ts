@@ -71,7 +71,11 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): Subscripti
 		let dropped = 0;
 		for (const element of raw) {
 			if (isValidSubscription(element)) {
-				valid.push(element);
+				// Copy rather than storing the caller's own object reference — deps.load()'s
+				// returned elements must not become aliased to this store's internal state, or
+				// a later in-place mutation here (e.g. recordChecked's `stored.lastCheckedAt =
+				// ...`) would silently corrupt whatever the caller still holds a reference to.
+				valid.push({ ...element });
 			} else {
 				dropped += 1;
 			}
