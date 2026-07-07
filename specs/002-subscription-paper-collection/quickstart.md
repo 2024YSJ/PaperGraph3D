@@ -245,7 +245,7 @@ import { computeCollectionWindow } from '../src/collection/scheduler';
 
 const now = Date.now();
 const brandNewWindow = computeCollectionWindow({ lastCheckedAt: null }, now);
-check('new subscription look-back is bounded to 24h, not unbounded', now - brandNewWindow.from === 24 * 60 * 60 * 1000);
+check('new subscription look-back is bounded to exactly 24h, not unbounded, and NOT widened by the announcement-lag overlap (FR-030 unmodified by FR-041)', now - brandNewWindow.from === 24 * 60 * 60 * 1000);
 
 const existingWindow = computeCollectionWindow({ lastCheckedAt: now - 100_000 }, now);
 check('existing subscription catch-up window starts at lastCheckedAt', existingWindow.from === now - 100_000);
@@ -467,10 +467,21 @@ check('the malformed entry is skipped, not thrown, and the well-formed one still
 
 ```ts
 // A subscription checked only 10 minutes ago — far more recent than the 4-day lag constant.
-const recentWindow = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000 }, now);
+const recentWindow = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: null }, now);
 check(
   "the query window overlaps at least 4 days into the past, not just the 10 minutes since lastCheckedAt (catches arXiv papers not yet announced when the prior check ran)",
   now - recentWindow.from >= 4 * 24 * 60 * 60 * 1000,
+);
+
+// The lag overlap must not cross below the subscription's own backward floor (coveredFrom) —
+// that territory belongs to backfill, not forward collection's own widening.
+const clampedByFloor = computeCollectionWindow(
+  { lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: now - 6 * 60 * 60 * 1000 }, // floor only 6h back
+  now,
+);
+check(
+  'the announcement-lag overlap is clamped at coveredFrom, never reaching further back than the backward floor',
+  clampedByFloor.from === now - 6 * 60 * 60 * 1000,
 );
 ```
 
@@ -479,7 +490,7 @@ check(
 ```ts
 const backwardsNow = now - 200_000; // "now" has moved backward past lastCheckedAt
 const clampedWindow = computeCollectionWindow({ lastCheckedAt: now - 100_000 }, backwardsNow);
-check('a clock moving backward produces an empty window, not an inverted one', clampedWindow.from === backwardsNow && clampedWindow.to === backwardsNow);
+check('a clock moving backward produces an empty window, not an inverted one, and is NOT widened by the announcement-lag overlap (FR-024 takes precedence over FR-041)', clampedWindow.from === backwardsNow && clampedWindow.to === backwardsNow);
 ```
 
 ### Registering a subscription with an empty or whitespace-only value is rejected (FR-025, research.md Decision 30)
