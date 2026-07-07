@@ -56,6 +56,7 @@ const withYear = toPaper({
   authors: ['Vaswani'], citationCount: 100000, abstract: '...',
   sourceId: 'arxiv:1706.03762',
   references: ['arxiv:1409.0473'], // outbound citations (FR-016 field); empty [] is also valid
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined, // not computed yet (FR-019)
 });
 check('paper with known year becomes valid Paper', withYear !== undefined && isValidPaper(withYear));
 
@@ -64,6 +65,7 @@ const withoutYear = toPaper({
   authors: [], citationCount: 0, abstract: '',
   sourceId: 'arxiv:9999.99999',
   references: [],
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('paper with unknown year is held back (undefined), not created', withoutYear === undefined);
 
@@ -84,6 +86,7 @@ const enrichedUnknown = toPaper({
   title: 'arXiv-only preprint', publicationYear: 2024,
   authors: [], citationCount: undefined, abstract: '',
   sourceId: 'arxiv:2401.00001', references: undefined,
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('paper promoted without citation data is NOT held back', enrichedUnknown !== undefined);
 check('citationsKnown is false when citation data was never fetched', enrichedUnknown?.citationsKnown === false);
@@ -92,6 +95,7 @@ const confirmedUncited = toPaper({
   title: 'Confirmed uncited paper', publicationYear: 2024,
   authors: [], citationCount: 0, abstract: '',
   sourceId: 'arxiv:2401.00002', references: [],
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('citationsKnown is true when citation data was actually fetched', confirmedUncited?.citationsKnown === true);
 
