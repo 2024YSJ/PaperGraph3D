@@ -109,8 +109,20 @@ export default class PaperGraph3DPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		const data = (await this.loadData()) as { settings?: Partial<PluginSettings> } | null;
-		this.settings = Object.assign({}, DEFAULT_PLUGIN_SETTINGS, data?.settings);
+		const data = (await this.loadData()) as Record<string, unknown> | null;
+		// Migration: before 002, settings were persisted as the whole flat blob
+		// (`saveData(this.settings)`), not nested under a `settings` key. When the persisted
+		// object has no `settings` key, treat the whole object as the legacy flat settings so
+		// a user's configuration isn't silently reset to defaults on first load after
+		// upgrading. (Keyed only on `settings` — not `subscriptions` — since the store may
+		// persist a `subscriptions` key before settings are ever saved nested; a stray
+		// `subscriptions` field is simply ignored by Object.assign as it isn't a
+		// PluginSettings field.)
+		const persistedSettings: Partial<PluginSettings> | undefined =
+			data !== null && 'settings' in data
+				? (data.settings as Partial<PluginSettings> | undefined)
+				: (data as Partial<PluginSettings> | null) ?? undefined;
+		this.settings = Object.assign({}, DEFAULT_PLUGIN_SETTINGS, persistedSettings);
 	}
 
 	async saveSettings() {
