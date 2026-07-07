@@ -1,10 +1,15 @@
 ---
-description: Verify how two or more specs under specs/ integrate by generating and running assert-style tests over the seams where one spec's output feeds the next, writing results under specs-chain-test/<chain-id>/.
+description: Verify how two or more specs under specs/ integrate — both each connection point (seam) where one spec's output feeds the next, and the whole-system flow threading one artifact end-to-end through the chain — by generating and running assert-style tests, writing results under specs-chain-test/<chain-id>/.
 argument-hint: "[spec-name ...]  (ordered, e.g. 001-core-data-models 003-paper-note-persistence; omit to auto-derive the chain)"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
-You are running the `/specs-chain-test` command. Where `/spec-test` checks **one** spec against its own implementation, this command checks how **two or more specs integrate** — the *seams* where one spec's produced artifact flows into the next spec's consumption of it (e.g. a `Paper` from `001` nested inside `003`'s JSON record). It derives cross-spec scenarios, runs them against the **currently implemented** code, and records the result under `specs-chain-test/<chain-id>/`. Follow these steps exactly.
+You are running the `/specs-chain-test` command. Where `/spec-test` checks **one** spec against its own implementation, this command checks how **two or more specs integrate**, from two complementary angles that are both mandatory:
+
+1. **Connection points (seams)** — each place where one spec's produced artifact flows into the next spec's consumption of it (e.g. a `Paper` from `001` nested inside `003`'s JSON record), verified in isolation.
+2. **Whole-system perspective** — a single artifact threaded end-to-end through *every* implemented seam in chain order, so the specs are exercised as one working pipeline, not just as disconnected pairwise couplings.
+
+It derives cross-spec scenarios for both angles, runs them against the **currently implemented** code, and records the result under `specs-chain-test/<chain-id>/`. Follow these steps exactly.
 
 ## 0. Resolve the target chain
 
@@ -25,6 +30,10 @@ The chain is an **ordered** list of two or more spec names.
 
 ## 2. Identify the seams and derive chain scenarios
 
+Derive scenarios at both levels required by this command: **per-seam** (2a) and **whole-system end-to-end** (2b). Both are mandatory for every chain, including a 2-spec one.
+
+### 2a. Per-seam scenarios (connection points)
+
 A **seam** is a concrete coupling point between an upstream spec A and a downstream spec B: a place where B's spec references A's entity/field/function by name and consumes, wraps, or extends it. Find them from B's `Input`, `Assumptions`, `Key Entities`, and `FR-xxx` text (e.g. `003` FR-016: "a serialized `Paper` (001) nested under a `paper` field"; the shared-field subset in `003` FR-002 that mirrors `001`'s `Paper`).
 
 For each adjacent pair (A → B) in the chain, build one **chain scenario** per seam. A chain scenario is a *sequence*, not a single-spec assertion:
@@ -33,7 +42,13 @@ For each adjacent pair (A → B) in the chain, build one **chain scenario** per 
 2. Feed that output into B's **real exported API** at the seam (e.g. wrap the `Paper` into `003`'s record, then derive the note frontmatter).
 3. Assert the **integration invariant the downstream spec states over that seam** — the property that only holds if both sides agree (e.g. every shared field in the note frontmatter equals the same field in the nested `Paper`; a `Paper` that `001` rejects can never become a valid `003` record).
 
-Give each scenario a stable id `C<k>` (k = 1, 2, …) and label it with the pair and seam, e.g. `C1 [001→003] shared frontmatter fields mirror the nested Paper`. Prefer scenarios that genuinely cross a seam over ones that only re-test a single spec — single-spec behavior belongs in `/spec-test`, not here. For a chain of three or more specs, also include at least one **end-to-end** scenario that threads a single artifact through every implemented seam in order.
+Give each scenario a stable id `C<k>` (k = 1, 2, …) and label it with the pair and seam, e.g. `C1 [001→003] shared frontmatter fields mirror the nested Paper`. Prefer scenarios that genuinely cross a seam over ones that only re-test a single spec — single-spec behavior belongs in `/spec-test`, not here.
+
+### 2b. Whole-system end-to-end scenarios (system perspective)
+
+Per-seam scenarios prove each connection point in isolation; they do **not** prove the specs work together as one pipeline. So **every** chain — even a 2-spec one — MUST also have at least one end-to-end scenario that constructs a single artifact at the head of the chain and threads it through **every implemented seam in chain order**, asserting the system-level property that must hold across the whole flow (e.g. a `Paper` built and validated by `001` → wrapped into `003`'s record → written to a record+note pairing → the value read back through `003`'s read path equals what `001` produced, and the user-owned region is untouched). Give these ids `E<k>` and label them `[system]`.
+
+An end-to-end scenario is SKIP only when **some** seam it must cross is unimplemented; if a downstream seam is missing, still assert the longest implemented prefix of the pipeline as a real `E<k>a` and SKIP the remainder as `E<k>b` with the reason (which seam is missing). Prefer a scenario that surfaces **emergent** cross-spec properties — invariants that no single seam test and no single-spec test would catch (round-trip fidelity through the whole chain, ordering/idempotency across specs, an upstream value the head spec rejects never producing any valid artifact anywhere downstream).
 
 ## 3. Classify testable vs SKIP
 
@@ -50,7 +65,7 @@ When only part of a seam is exercisable, **split it**: keep the implemented upst
 Write `specs-chain-test/<chain-id>/<chain-id>.chain-test.ts` using the repo's established no-test-runner convention (esbuild + node, as in `specs/001-core-data-models/quickstart.md`). It must:
 - Import the real symbols from `src/` via a relative path (from `specs-chain-test/<chain-id>/` that is `../../src/...`). Import from **every** implemented spec in the chain — the point is to use real code from both sides of each seam.
 - Define tiny helpers, e.g. `check(id, desc, fn)` that runs `fn()` (throwing = FAIL) and records `{id, desc, status: 'PASS'|'FAIL', error?}`, and `skip(id, desc, reason)`.
-- Contain one `check(...)` per testable chain scenario and one `skip(...)` per pending seam, each labelled with its `C<k>` id and the pair/seam text.
+- Contain one `check(...)` per testable scenario and one `skip(...)` per pending case — covering **both** the per-seam scenarios (`C<k>`, step 2a) and the whole-system end-to-end scenarios (`E<k>`, step 2b) — each labelled with its id and the pair/seam or `[system]` text.
 - At the end, print one line per case as `[PASS] <id> — <desc>`, `[FAIL] <id> — <desc>: <error>`, or `[SKIP] <id> — <desc> (<reason>)`, then a summary line `Summary: <p> passed, <f> failed, <s> skipped`, and set `process.exitCode = f > 0 ? 1 : 0`.
 
 Keep the assertions honest — a chain assertion must actually thread data across the seam (build with A's API, consume with B's API, assert B's invariant on the result). Do not write tautologies, and do not re-derive a spec's own internal check — drive the real exported functions on both sides. Where the downstream side is missing, the honest form is a SKIP, not a green test that quietly only touches the upstream side.
@@ -77,6 +92,7 @@ Capture the full stdout/stderr and the exit code.
 Write `specs-chain-test/<chain-id>/report.md` containing:
 - A header: the chain (`<spec> → <spec> → …` in order), source branch (`git rev-parse --abbrev-ref HEAD`), date, `tsc --noEmit` result, and the counts `passed / failed / skipped`.
 - A **Seam map** section: one line per adjacent pair listing its seams and, for each, whether it is exercised (both sides implemented) or SKIP (which side is missing).
+- A **Whole-system flow** section: the end-to-end pipeline it threaded (`<spec> → <spec> → …`), how far the artifact travelled before hitting an unimplemented seam, and which system-level invariants (`E<k>`) were asserted vs SKIP.
 - A table with columns `id | pair/seam | status | note` for every scenario.
 - A **Known residual limitations** section: cross-spec behaviors you noticed the current code does not guard (e.g. a downstream that would accept a field the shared subset excludes) but which are outside this suite's asserted scope. List them as notes, not failures — unless they clearly violate a spec's stated integration invariant, in which case they are a real FAIL.
 - A fenced block with the raw test run output appended at the end.
