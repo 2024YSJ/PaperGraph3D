@@ -463,6 +463,17 @@ const mixedCandidates = parseArxivAtom(MIXED_ATOM);
 check('the malformed entry is skipped, not thrown, and the well-formed one still parses', mixedCandidates.length === 1 && mixedCandidates[0]?.sourceId === 'arxiv:2301.00002');
 ```
 
+### Every check's query window reaches back at least ANNOUNCEMENT_LAG_MS, even for a very recent lastCheckedAt (FR-041, research.md Decision 38)
+
+```ts
+// A subscription checked only 10 minutes ago — far more recent than the 4-day lag constant.
+const recentWindow = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000 }, now);
+check(
+  "the query window overlaps at least 4 days into the past, not just the 10 minutes since lastCheckedAt (catches arXiv papers not yet announced when the prior check ran)",
+  now - recentWindow.from >= 4 * 24 * 60 * 60 * 1000,
+);
+```
+
 ### A clock that has moved backward clamps to an empty window, never an inverted range (FR-024, research.md Decision 29)
 
 ```ts
