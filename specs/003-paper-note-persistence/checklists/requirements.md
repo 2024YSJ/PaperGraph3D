@@ -32,5 +32,6 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
-- The spec carries 12 **Open Questions** (OQ-1..OQ-12). These are deliberately deferred design decisions, not `[NEEDS CLARIFICATION]` blockers — the spec is internally consistent and testable without them resolved. They should be addressed during `/speckit-clarify` and `/speckit-plan`.
-- Minor: the on-disk `.json`/`.md` sidecar layout is stated as an **Assumption** (a realizing detail), not as a hard requirement, keeping the FRs technology-agnostic while still concrete enough to test.
+- Clarification status: two `Session 2026-07-07` rounds resolved 11 of the 12 original Open Questions plus a follow-up review (record merge policy, delete-vs-body semantics, tombstoned delete, `readState`/timestamp bookkeeping, filename sanitization). Only **OQ-4** (list-field YAML rendering, a presentation detail) remains open and is safe to settle in `/speckit-plan`.
+- The on-disk `.json`/`.md` per-paper sidecar layout is now a hard requirement (FR-007), not just an Assumption; the FRs stay behavior-focused while being concrete enough to test.
+- Requirements grew to FR-001..FR-021 and SC-001..SC-007 across clarification; all remain testable and internally consistent (the one contradiction found in review, US1 vs FR-002 mirrored-subset, has been corrected).
