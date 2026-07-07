@@ -26,6 +26,13 @@ export interface SubscriptionStoreDeps {
   // to the scheduler's `checkNow` handle so a new subscription is checked immediately
   // rather than up to ~15 min later (FR-028, research.md Decision 34). Keeping it a plain
   // callback keeps subscriptionStore.ts free of any dependency on scheduler.ts.
+  onBackfillRequested?: (subscription: Subscription) => void;
+  // Fired by `requestBackfill` only after a backfill has actually been started/extended
+  // (a validated, non-no-op request that set or lowered backfillState) — NOT on a rejected
+  // or no-op request (FR-038). main.ts wires this to the scheduler's `backfillNow` handle so
+  // a just-requested backfill begins running immediately, in exact parallel to how
+  // onRegistered wires to checkNow. Same callback seam keeps subscriptionStore.ts unaware
+  // scheduler.ts / backfill.ts exist (FR-033).
   onInvalidData?: (droppedCount: number) => void;
   // Fired at most once, the first time `load()`'s result is consumed, if any element
   // failed 001's `isValidSubscription` and was dropped (see Behavior guarantees). Optional
@@ -40,6 +47,9 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
   setEnabled(subscription: Subscription, enabled: boolean): Promise<void>;
   setCheckInterval(subscription: Subscription, requested: number): Promise<CheckIntervalHours>;
   recordChecked(subscription: Subscription, checkedThrough: number): Promise<void>;
+  recordFirstCoverage(subscription: Subscription, from: number): Promise<void>;
+  requestBackfill(subscription: Subscription, targetFrom: number): Promise<void>;
+  recordBackfillProgress(subscription: Subscription, cursor: number): Promise<void>;
 };
 ```
 
@@ -50,9 +60,13 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): {
 - `register` is idempotent on `(type, value)`: if a subscription with that exact `type` and `value` already exists, it is returned unchanged and `input.label`/`input.checkIntervalHours` are ignored — no duplicate is ever created (FR-001, SC-009). `deps.onRegistered` is invoked **only** on a genuinely-new registration (after `deps.save` resolves), never on this idempotent-hit path, so re-registering an existing subscription triggers no redundant immediate check (FR-028, research.md Decision 34).
 - `remove` and `setEnabled` take effect immediately in `list()`'s next result and are persisted via `deps.save` before resolving — a caller awaiting `remove`/`setEnabled` is guaranteed the change is durable, not just in-memory (FR-002/FR-010).
 - `setCheckInterval` delegates to 001's `assignCheckInterval`; a disallowed `requested` value leaves the subscription's stored interval unchanged and the returned value reflects what was actually stored (this specific rejection rule is 001's own FR-005, reused here — this feature's own requirement to expose interval-changing at all is FR-002).
-- `recordChecked` never moves a subscription's `lastCheckedAt` backward, and is the only way `lastCheckedAt` changes (FR-006) — `scheduler.ts` calls this, nothing else writes to it. **Exception**: when the system clock has moved backward past the subscription's stored `lastCheckedAt` (FR-024), `computeCollectionWindow` collapses to an empty window at the new, earlier `now`, and `recordChecked` is called with that earlier value — this is not a truncation regression, it is the clock-backward case's intended normalization, and is the one situation where `checkedThrough` is legitimately less than the previously stored `lastCheckedAt`.
+- `recordChecked` never moves a subscription's `lastCheckedAt` backward, and is the only way `lastCheckedAt` changes (FR-006) — `scheduler.ts` calls this, nothing else writes to it. This backward-guard is also exactly what implements the clock-backward case (FR-024): when the system clock has moved backward past the stored `lastCheckedAt`, `computeCollectionWindow` collapses to an empty window at the earlier `now` (discovering nothing), and the resulting `recordChecked(subscription, earlierNow)` is a **no-op** because `earlierNow < lastCheckedAt` — `lastCheckedAt` is left unchanged rather than moved backward, so no already-covered span is re-opened once the clock returns to normal. (This supersedes an earlier design that advanced `lastCheckedAt` backward to the earlier `now`, which was found to re-search a covered span in violation of FR-006.)
 - `recordChecked` is a no-op when its target subscription (matched by `(type, value)` — see below) is no longer present in the store — e.g. it was deleted while its check was in flight. It MUST NOT re-insert the deleted subscription just to hold a `lastCheckedAt` value; any papers that check already discovered were enriched/persisted independently and are unaffected by the subscription's deletion.
 - `remove`, `setEnabled`, `setCheckInterval`, and `recordChecked` all identify their target subscription by `(type, value)` — never by object reference/identity — matching the in-flight guard's own keying (scheduler.ts § Behavior guarantees) and reflecting that `list()`/`getSubscriptions()` may return a freshly-constructed `Subscription` object on every call rather than the same object instance a caller originally held.
+- `recordFirstCoverage(subscription, from)` initializes `coveredFrom = from` (the first forward check's `window.from`, i.e. registration − 24h) **only if `coveredFrom` is not already set** — it is idempotent and never raises an existing floor, so it is safe for the scheduler to call on every check without guarding (FR-035). Identifies its target by `(type, value)`, like the others, and is a no-op if the subscription is no longer present.
+- `requestBackfill(subscription, targetFrom)` (FR-033/FR-038): rejects (its returned `Promise` throws) when `targetFrom` is empty/`NaN`/non-finite, in the future (`> now`), or otherwise not a valid past instant. It is a **no-op** (resolves without changing anything, and does NOT fire `onBackfillRequested`) when `targetFrom >= coveredFrom` (nothing older to fill) — including when `coveredFrom` is unset, which means no forward coverage exists yet to backfill *below*. On a valid request it sets `backfillState = { targetFrom, cursor: targetFrom }`, persists, and fires `onBackfillRequested?.(subscription)`; when a backfill is already in progress and a *further-past* `targetFrom` arrives, it lowers `backfillState.targetFrom` to the new value (leaving `cursor` where it is, so in-flight progress is not rewound) and fires the callback again. Identifies target by `(type, value)`.
+- `recordBackfillProgress(subscription, cursor)` (FR-036): advances the persisted `backfillState.cursor` to `cursor` (never backward — like `recordChecked`, a lower value is ignored). On completion — `cursor >= coveredFrom` — it lowers `coveredFrom = backfillState.targetFrom` and clears `backfillState` to `null`, so the backward floor moves down and a later still-earlier `requestBackfill` chains below it without overlap. A no-op when the subscription is no longer present (deleted mid-backfill, FR-037) — it MUST NOT re-insert it. This is the only writer of `coveredFrom`/`backfillState` besides `requestBackfill`/`recordFirstCoverage`; it never touches `lastCheckedAt` (FR-035).
+- `remove` carries a subscription's `backfillState`/`coveredFrom` away with it (they live on the `Subscription` object), so deleting a subscription mid-backfill discards its backfill state (FR-037). `setEnabled(subscription, false)` does not clear `backfillState` — a disabled subscription keeps its persisted cursor so re-enabling resumes from it (FR-037); the *pausing* itself is the scheduler/runner declining to start a new pass for a disabled subscription, not a store mutation.
 - This module builds no UI; the settings-screen UI is 008's responsibility, calling these functions directly.
 
 ## `src/collection/scheduler.ts`
@@ -77,6 +91,14 @@ export interface SchedulerDeps {
   // TRANSITION into failing for a given subscription+reason (FR-012a) — not on every
   // retry — so a provider down for hours triggers exactly one notice, not one every
   // 15-minute tick. See `ScheduledCheckState.failing` in Behavior guarantees below.
+  onFirstCoverage?: (subscription: Subscription, from: number) => Promise<void>;
+  // Wraps subscriptionStore.recordFirstCoverage; called by the scheduler on a subscription's
+  // first forward check to initialize coveredFrom = window.from (idempotent — see
+  // subscriptionStore.ts). Absent in tests that don't exercise backfill (FR-035).
+  onBackfillProgress?: (subscription: Subscription, cursor: number) => Promise<void>;
+  // Wraps subscriptionStore.recordBackfillProgress; called by the backfill runner after each
+  // pass to advance/persist the cursor (and, on completion, lower coveredFrom + clear state).
+  // The backfill counterpart to onSubscriptionChecked — NEVER writes lastCheckedAt (FR-035).
   now?: () => number; // defaults to Date.now; injectable for tests
 }
 
@@ -84,8 +106,15 @@ export interface SchedulerDeps {
 // (same computeCollectionWindow, same in-flight guard, same runCheck/onSubscriptionChecked/
 // onFailure wiring) for a single subscription right now. main.ts wires it to
 // subscriptionStore's `onRegistered` so a newly-registered subscription is checked
-// immediately (FR-028, research.md Decision 34).
-export function startScheduler(plugin: Plugin, deps: SchedulerDeps): { checkNow(subscription: Subscription): Promise<void> };
+// immediately (FR-028, research.md Decision 34). The SAME checkNow is what a user-triggered
+// on-demand check of an EXISTING subscription (FR-032) invokes — FR-032 adds no new check
+// implementation, only a user-facing trigger (008's) that calls this handle. `backfillNow`
+// is checkNow's backward-collection counterpart (FR-033–040): it runs backfill.ts's runner
+// for one subscription, wired by main.ts to subscriptionStore's `onBackfillRequested`.
+export function startScheduler(plugin: Plugin, deps: SchedulerDeps): {
+  checkNow(subscription: Subscription): Promise<void>;
+  backfillNow(subscription: Subscription): Promise<void>;
+};
 
 // Deliberately typed on a narrowed Pick, not the full Subscription — this function reads
 // only lastCheckedAt, and quickstart.md's scenarios call it with plain { lastCheckedAt }
@@ -96,6 +125,14 @@ export function computeCollectionWindow(
   subscription: Pick<Subscription, 'lastCheckedAt'>,
   now: number,
 ): { from: number; to: number };
+
+// Backward-collection counterpart, same narrowed-Pick rationale. Returns the window a
+// backfill pass searches — { from: backfillState.cursor, to: coveredFrom } — or undefined
+// when there is no active backfillState (nothing to run). Feeds the SAME runSubscriptionCheck
+// as forward collection; only the window differs (FR-034).
+export function computeBackfillWindow(
+  subscription: Pick<Subscription, 'coveredFrom' | 'backfillState'>,
+): { from: number; to: number } | undefined;
 ```
 
 **Behavior guarantees**:
@@ -107,9 +144,13 @@ export function computeCollectionWindow(
 - `onSubscriptionChecked` is called if and only if `runCheck` resolved without throwing, and is called with **`runCheck`'s returned `coveredThrough`** (never `window.to` directly, and never a value greater than `window.to`) (FR-006, FR-026) — so a fully-covered window records `checkedThrough === window.to`, while a truncated window records only the newest fetched paper's submission time, leaving the uncovered newer tail to be picked up next check (research.md Decision 32). A thrown/rejected `runCheck` leaves the subscription's checked-through time untouched. This applies identically whether the subscription was still `enabled` at the moment `runCheck` settled or was disabled while the check was in flight — an in-flight check is never aborted by a disable, and its `lastCheckedAt` update still applies on success (FR-010, Clarification 2026-07-06); only *starting* a new `runCheck` is what a disable prevents.
 - A disabled subscription is never *newly* passed to `runCheck`, on any tick or on the catch-up pass (FR-010) — this only prevents starting new checks, not completing an already-started one (see previous bullet).
 - When `runCheck` rejects, `onFailure(subscription, 'unreachable')` is called (when provided) **only if this subscription's `` `${type}:${value}` `` key was not already marked failing for `'unreachable'`** (FR-012a) — the scheduler tracks this in a `ScheduledCheckState.failing: Map<string, 'unreachable' | 'truncated'>` alongside the existing `inFlight` set, setting the entry on this first failure and leaving it in place across every subsequent retry, so a provider down for hours produces exactly one notice, not one per 15-minute tick. The failed subscription is retried on its next due tick or the next load, never advancing past the unsearched window (FR-012). When `runCheck` resolves with `{ truncated: true }` — surfaced this way specifically so the scheduler can react to it without inspecting internal state — `onFailure(subscription, 'truncated')` is likewise gated by the same `failing` map (keyed by reason, so a subscription already marked `'unreachable'` that then starts truncating still gets one fresh `'truncated'` notice, since it's a different reason), but `lastCheckedAt` still advances (via `onSubscriptionChecked(subscription, coveredThrough)`) since a truncated query is not a failed one, just an incompletely-covered one — advancing only to the covered `coveredThrough` boundary, so the uncovered newer remainder is collected next check rather than lost (FR-014, FR-026, research.md Decision 32). On any `runCheck` that succeeds without `truncated: true`, the subscription's `failing` entry (if any) is cleared, so a recovered subscription's next failure notifies again from a clean slate. `scheduler.ts` itself never imports or constructs a `Notice` — it only invokes `deps.onFailure`, a plain callback with no dependency on the `obsidian` package; the actual `new Notice(...)` call (research.md Decision 16) lives in the `onFailure` implementation `main.ts` (T020) supplies, which is what keeps `startScheduler` testable with a stubbed `onFailure` outside a real Obsidian host (exactly what `quickstart.md`'s scenarios do). T017 implements the two `onFailure` call sites (rejection and truncation) plus the `failing`-map gating inside `scheduler.ts`; it does not implement `Notice` display itself. Because the catch-up pass and a regular tick both invoke the same `runCheck`/`onFailure` wiring (no separate implementation per call site — research.md Decision 5), the truncated-window notice fires identically regardless of which one produced it; T019 only verifies this shared behavior surfaces correctly during catch-up, it does not re-implement it.
+- **Bounded no-progress escape** (FR-026 escape clause): when a `runCheck` resolves `{ truncated: true }` with a `coveredThrough` that does not advance past `window.from` (i.e. no forward progress, because none of the fetched entries had a readable submission time — see arxivClient.ts `coveredThrough` fallback), the scheduler increments a per-subscription counter in `ScheduledCheckState.noProgress: Map<string, number>` (keyed by `` `${type}:${value}` ``, alongside `inFlight`/`failing`). While progress is being made this counter is reset to 0. Once it reaches a small bound (`MAX_NOPROGRESS_PASSES`, e.g. 3), the scheduler advances `lastCheckedAt` to `window.to` anyway — abandoning the stalled, structurally-unreadable prefix (those entries are already unpromotable under FR-023) — and fires `onFailure(subscription, 'truncated')` (subject to the same once-per-reason gating) so the user is told the window could not be fully covered. This trades a bounded set of unreadable entries for scheduler liveness, so a subscription can never re-fetch the same unreadable prefix on every tick forever. This is the only case where `recordChecked` advances past a not-fully-covered window's uncovered portion; it is deliberately bounded and notice-backed.
 - The catch-up pass (bullet above) runs synchronously as part of `startScheduler`'s own execution during `onload` — no artificial startup delay is introduced before it begins (research.md Decision 17).
 - The returned `checkNow(subscription)` runs one subscription through the exact same path a tick uses: it computes `window = computeCollectionWindow(subscription, now)`, respects the same `` `${type}:${value}` `` in-flight guard (so an immediate check and the next scheduled tick can never both process the subscription — whichever starts second is skipped while the first is in flight), invokes `runCheck`, and applies the same `onSubscriptionChecked`/`onFailure` handling. It is a no-op for a subscription that is not `enabled`. `checkNow` introduces no second, divergent check implementation (FR-028, research.md Decision 34).
 - Re-enabling a subscription needs no special handling here: because `lastCheckedAt` did not advance while it was disabled (no checks ran), the ordinary `computeCollectionWindow(subscription, now)` used by the next tick (or by `checkNow`, if a re-enable path chooses to trigger one) naturally spans `[lastCheckedAt, now]` — the whole disabled period — exactly like a plugin-was-off catch-up, and Decision 32's truncation-aware advancement covers an over-large such window across successive checks without loss (FR-029, research.md Decision 35).
+- **First-coverage initialization** (FR-035): on a subscription's *first* forward check (its `coveredFrom` still unset), after computing the window the scheduler calls `deps.onFirstCoverage?.(subscription, window.from)` to record `coveredFrom = window.from` (= registration − 24h). This is idempotent at the store layer, so calling it on every check is harmless; it establishes the backward floor a later backfill fills below. It never affects `lastCheckedAt`.
+- **`checkNow` also serves FR-032** (on-demand check of an existing subscription): the returned `checkNow(subscription)` is invoked both by `onRegistered` (a new subscription, FR-028) and by a user-facing on-demand trigger for an existing subscription (FR-032); it is the same code path either way, and the in-flight guard ensures it never overlaps a scheduled tick for that subscription. The FR-032 trigger itself (command/button) is 008's, per spec Out of Scope — the scheduler only exposes the handle.
+- **`backfillNow` and backfill resumption** (FR-033–040, see `backfill.ts` below): `backfillNow(subscription)` delegates to `backfill.ts`'s runner. The recurring tick and the catch-up-on-load pass additionally resume any subscription with an active `backfillState` (running one pass through the runner, subject to the same `inFlight` guard so a backfill pass and a forward tick for the same subscription never overlap — FR-039). A disabled subscription is never started/resumed (FR-037). Backfill records progress via `deps.onBackfillProgress`, never `onSubscriptionChecked`, so `lastCheckedAt` is untouched (FR-035); its failures go through the same `onFailure` gating as a forward check (FR-040).
 
 ## `src/collection/pipeline.ts`
 
@@ -178,6 +219,36 @@ export function runSubscriptionCheck(
 - `runCollectionPass` never throws for an individual candidate's enrichment/summarization failure — it logs/surfaces the failure and continues to the next candidate, so one bad entry cannot abort an entire batch (FR-012 applied at the per-paper level).
 - `hooks.alreadyPersisted` and `hooks.persist` both assume 003 exposes, respectively, an existence-check-by-`sourceId` capability and an upsert-by-`sourceId` capability — as of this writing, `specs-input/003-paper-note-persistence/spec.md`'s Functional Requirements are write-only (create/update/delete) and define no query/read capability at all (see research.md Decision 23). This feature's contract does not implement or stand in for that capability; it only assumes 003 will provide it once specified. `main.ts` (T020) wires stub implementations of both hooks until 003 exists.
 - `runSubscriptionCheck` is the concrete composition this feature ships as `startScheduler`'s (contracts § scheduler.ts) `runCheck` dependency: it calls `queryArxiv(subscription, window)` (contracts § arxivClient.ts), maps each of its `entries` through `parseArxivEntry` (contracts § arxivParser.ts — **not** `parseArxivAtom`, which takes a whole XML document rather than one already-parsed entry) into an `AsyncIterable<PaperCandidate>` — silently skipping any `undefined` result (FR-023) rather than propagating it — and hands that to `runCollectionPass`, forwarding its own `isSummarizationEnabled`/`getSemanticScholarApiKey`/`enrich` parameters straight through unmodified — then returns `{ truncated, coveredThrough }` exactly as `queryArxiv` reported them, so `startScheduler` (research.md Decision 5) can both surface the FR-014 notice and record `lastCheckedAt` at the covered boundary (FR-026, Decision 32) without either function needing to know about the other's internals (research.md Decision 24). `main.ts` (T020) never passes `enrich` — it relies on the default, so production always calls the real `enrichFromSemanticScholar`.
+
+## `src/collection/backfill.ts`
+
+```ts
+import type { Subscription } from '../models/subscription';
+import type { PipelineHooks, runSubscriptionCheck } from './pipeline';
+
+export interface BackfillRunnerDeps {
+  runCheck: (subscription: Subscription, window: { from: number; to: number }) => Promise<{ truncated: boolean; coveredThrough: number }>;
+  // The SAME runCheck the scheduler uses (wraps runSubscriptionCheck) — backfill introduces
+  // no second collection path; only the window differs (FR-034).
+  onBackfillProgress: (subscription: Subscription, cursor: number) => Promise<void>;
+  // Wraps subscriptionStore.recordBackfillProgress (advance cursor; on completion lower
+  // coveredFrom + clear state). NEVER onSubscriptionChecked — lastCheckedAt is untouched (FR-035).
+  onFailure?: (subscription: Subscription, reason: 'unreachable' | 'truncated') => void;
+}
+
+// Runs ONE backfill pass for a subscription over computeBackfillWindow(subscription)
+// (oldest-first). Returns after a single pass (one runCheck), so the caller (scheduler tick/
+// backfillNow) drives successive passes across ticks/restarts. A no-op when the subscription
+// has no active backfillState, is not enabled (FR-037), or computeBackfillWindow is empty.
+export function runBackfillPass(subscription: Subscription, deps: BackfillRunnerDeps): Promise<void>;
+```
+
+**Behavior guarantees**:
+- Computes `window = computeBackfillWindow(subscription)` (`{ from: cursor, to: coveredFrom }`); if `undefined` (no active `backfillState`) or `window.from >= window.to` (cursor already reached the floor), it is a no-op. It never reads or writes `lastCheckedAt` and never calls `computeCollectionWindow` (FR-035).
+- Invokes the **same** `runCheck`/`runSubscriptionCheck` forward collection uses, with the backfill window — so discovery (arXiv, `submittedDate` ascending), parse, batch-enrich, promote, dedup (FR-009), summarize, and persist are byte-for-byte the forward pipeline, and the produced `Paper`/`citationsKnown` are identical (FR-034). Papers the forward pass already stored are dropped by the same `alreadyPersisted`/`seen` dedup — a backfill overlapping forward-covered papers re-processes none (FR-034/FR-009).
+- On a resolved pass it advances the cursor to `runCheck`'s returned `coveredThrough` via `onBackfillProgress` — the covered oldest-first prefix, reusing FR-026's truncation-aware advancement — so a window larger than the paging cap is covered across successive passes and continues after a plugin restart (the cursor is persisted). No historical paper in the window is lost (FR-036). When the cursor reaches `coveredFrom`, `recordBackfillProgress` (inside `onBackfillProgress`) lowers `coveredFrom = targetFrom` and clears `backfillState`, ending the run.
+- A rejected `runCheck` does **not** advance the cursor (`onBackfillProgress` is not called), is surfaced via `onFailure(subscription, 'unreachable')` under the scheduler's same once-per-reason gating, and is retried on a later tick/load — exactly as a forward failure (FR-040). A `{ truncated: true }` resolution still advances the cursor to `coveredThrough` and fires `onFailure(subscription, 'truncated')` (FR-014), signalling "more coming next pass," identical to forward truncation.
+- The caller (scheduler) wraps every `runBackfillPass` in the shared `inFlight` guard keyed by `` `${type}:${value}` ``, so a subscription's backfill pass and its forward tick can never run concurrently (FR-039). The runner yields to the event loop within `runCollectionPass` exactly as forward collection does, so a large-history pass never freezes the UI (FR-013).
 
 ## `src/collection/arxivParser.ts` / `semanticScholarParser.ts`
 

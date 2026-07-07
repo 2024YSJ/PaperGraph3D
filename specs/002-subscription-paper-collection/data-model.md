@@ -14,6 +14,9 @@ interface SubscriptionStore {
   setEnabled(subscription: Subscription, enabled: boolean): void;
   setCheckInterval(subscription: Subscription, requested: number): void; // delegates to 001's assignCheckInterval
   recordChecked(subscription: Subscription, checkedThrough: number): void; // used by scheduler.ts, FR-006
+  recordFirstCoverage(subscription: Subscription, from: number): void;     // first forward check records coveredFrom = window.from (registration - 24h), once (FR-035)
+  requestBackfill(subscription: Subscription, targetFrom: number): void;   // validate (FR-038), set backfillState, persist, fire onBackfillRequested? (FR-033)
+  recordBackfillProgress(subscription: Subscription, cursor: number): void; // advance persisted cursor; on completion (cursor >= coveredFrom) lower coveredFrom = targetFrom and clear backfillState (FR-036)
 }
 ```
 
@@ -48,7 +51,45 @@ interface CollectionWindow {
 }
 ```
 
-Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`. If the system clock has moved backward such that `lastCheckedAt` is after `now`, `from` is clamped to `now` (`from = Math.min(lastCheckedAt ?? now - 24h, now)`), collapsing to an empty window rather than sending a provider an inverted range (FR-024).
+Used identically by a normal scheduled tick and a catch-up-on-load pass (research.md Decision 5) — there is exactly one code path that computes and consumes a `CollectionWindow`. If the system clock has moved backward such that `lastCheckedAt` is after `now`, `from` is clamped to `now` (`from = Math.min(lastCheckedAt ?? now - 24h, now)`), collapsing to an empty window rather than sending a provider an inverted range (FR-024). The subsequent `recordChecked(subscription, now)` then no-ops (its backward-guard leaves `lastCheckedAt` unchanged rather than moving it to the earlier `now`), so no already-covered span is re-searched when the clock returns to normal — this is the FR-024 behavior, superseding an earlier design that advanced `lastCheckedAt` backward.
+
+## Subscription backfill state (User Story 5)
+
+Backfill needs two pieces of per-subscription state that forward collection does not, added to 001's `Subscription` as **optional** fields — an FR-016-style additive extension exactly like `PluginSettings.semanticScholarApiKey`, not a modification of anything 001 already fixed:
+
+```ts
+// Added to src/models/subscription.ts's Subscription by this feature (both optional, absent by default):
+interface Subscription {
+  // ...001's existing fields...
+  coveredFrom?: number | null;   // backward floor: the oldest instant this subscription's collection has covered (epoch ms).
+                                 // First recorded at the first forward check as that window's `from` (registration - 24h) via recordFirstCoverage; lowered by a completed backfill. Absent/null on a subscription that has never been checked.
+  backfillState?: { targetFrom: number; cursor: number } | null; // present only while a backfill is active.
+                                 // cursor starts at targetFrom and advances upward toward coveredFrom; both epoch ms. Absent/null when no backfill is in progress.
+}
+```
+
+`isValidSubscription` (001) is widened to **accept** these two optional fields (a subscription without them still validates — they are absent by default), so a persisted subscription round-trips through validation whether or not it has ever been backfilled. This is the same additive-validation change the `semanticScholarApiKey` extension made to `PluginSettings`; it is flagged as a cross-feature edit to a 001 file.
+
+**Backfill Window** — derived per pass, never persisted as its own entity (parallel to Collection Window):
+
+```ts
+interface BackfillWindow {
+  from: number; // epoch ms; backfillState.cursor (starts at targetFrom, advances upward)
+  to: number;   // epoch ms; coveredFrom (the subscription's forward floor)
+}
+
+// Parallel to computeCollectionWindow; feeds the SAME runSubscriptionCheck, only the window differs.
+function computeBackfillWindow(
+  subscription: Pick<Subscription, 'coveredFrom' | 'backfillState'>,
+): BackfillWindow | undefined; // undefined when no active backfillState (nothing to run)
+```
+
+**Store operations** (contracts § subscriptionStore.ts has the exact signatures):
+- `recordFirstCoverage(subscription, from)` — called by the scheduler on a subscription's *first* forward check to initialize `coveredFrom = window.from` (registration − 24h). Idempotent: a no-op once `coveredFrom` is already set, so it never raises the floor.
+- `requestBackfill(subscription, targetFrom)` — validates per FR-038 (reject empty/future/non-date; no-op when `targetFrom >= coveredFrom`), sets `backfillState = { targetFrom, cursor: targetFrom }` (or lowers an in-progress run's `targetFrom` when a further-past request arrives), persists, and fires an optional `onBackfillRequested?` callback that `main.ts` wires to the scheduler's `backfillNow` (parallel to how `onRegistered` wires to `checkNow`).
+- `recordBackfillProgress(subscription, cursor)` — advances the persisted `cursor` after a pass; on completion (`cursor >= coveredFrom`) it lowers `coveredFrom = backfillState.targetFrom` and clears `backfillState`, so a later still-earlier request chains further down without overlap.
+
+Backfill never calls `recordChecked` and never reads `lastCheckedAt` — the two watermarks are fully disjoint (FR-035).
 
 ## Provider response intermediate shapes
 
@@ -170,7 +211,9 @@ Injected, not imported — `pipeline.ts` calls exactly these two hooks in order 
 interface ScheduledCheckState {
   // No new persisted fields — reads/writes only Subscription.lastCheckedAt (001).
   // "Due" for subscription s at time now: s.enabled && now >= (s.lastCheckedAt ?? -Infinity) + s.checkIntervalHours * 3_600_000
-  inFlight: Set<string>; // in-memory only; keyed by `${type}:${value}`, NOT by object reference (research.md Decision 14)
+  inFlight: Set<string>;             // in-memory only; keyed by `${type}:${value}`, NOT by object reference (research.md Decision 14)
+  failing: Map<string, 'unreachable' | 'truncated'>; // once-per-reason notice gating (FR-012a), same keying
+  noProgress: Map<string, number>;  // successive truncated-but-no-forward-progress passes per subscription (FR-026 escape); reset on any progress, bounded by MAX_NOPROGRESS_PASSES
 }
 ```
 
@@ -178,11 +221,13 @@ The scheduler introduces no new *persisted* entity: due-ness is a pure function 
 
 **Recording the covered boundary** (FR-026, research.md Decision 32): `runCheck` returns `{ truncated, coveredThrough }`, and the scheduler records `lastCheckedAt` via `onSubscriptionChecked(subscription, coveredThrough)` — the covered boundary, `=== window.to` for a fully-covered window or the newest fetched paper's submission time for a truncated one — never `window.to` unconditionally. This is what makes a truncated window resumable across successive checks instead of losing its uncovered tail.
 
-**`checkNow` handle** (FR-028, research.md Decision 34): `startScheduler` returns `{ checkNow(subscription): Promise<void> }`, which runs one subscription through the identical due-check path (same `computeCollectionWindow`, same `inFlight` guard, same `runCheck`/`onSubscriptionChecked`/`onFailure`), a no-op if the subscription is not `enabled`. `main.ts` wires it to `subscriptionStore`'s `onRegistered`.
+**`checkNow` handle** (FR-028 **and FR-032**, research.md Decision 34): `startScheduler` returns `{ checkNow(subscription): Promise<void>; backfillNow(subscription): Promise<void> }`. `checkNow` runs one subscription through the identical due-check path (same `computeCollectionWindow`, same `inFlight` guard, same `runCheck`/`onSubscriptionChecked`/`onFailure`), a no-op if the subscription is not `enabled`. `main.ts` wires it to `subscriptionStore`'s `onRegistered` for the immediate first check of a *new* subscription (FR-028); the **same handle** is what a user-triggered on-demand check of an *existing* subscription (FR-032) calls — no second implementation, since FR-032 is exactly "run the same immediate check, but for a subscription that already exists." The user-facing trigger (command/button) for FR-032 is 008's, per spec Out of Scope.
+
+**`backfillNow` handle** (FR-033–040): the backward-collection counterpart to `checkNow`. It runs `backfill.ts`'s runner for one subscription — resuming its active `backfillState` pass-by-pass over `computeBackfillWindow(subscription)` (oldest-first), through the **same `runCheck`/`runSubscriptionCheck`** forward collection uses (only the window differs) and the **same `inFlight` guard** (so a subscription's backfill pass and forward tick can never run concurrently — FR-039), recording progress via `recordBackfillProgress` instead of `recordChecked` (so `lastCheckedAt` is never touched — FR-035), and surfacing failures via the same `onFailure` path (FR-040). It is a no-op if the subscription is not `enabled` (disable pauses backfill — FR-037). `main.ts` wires it to `subscriptionStore`'s `onBackfillRequested`; the recurring tick and the catch-up-on-load pass also resume any subscription with an active `backfillState`, so a large history continues across ticks and plugin restarts.
 
 **Re-enable needs no special case** (FR-029, research.md Decision 35): since `lastCheckedAt` does not move while a subscription is disabled, the ordinary `computeCollectionWindow` spans the whole disabled period on the next check — a catch-up, exactly like a plugin-was-off gap — and Decision 32 covers an over-large such window without loss.
 
 ## Cross-entity notes
 
-- This feature adds exactly one field to 001's baseline, as an FR-016-style additive extension: `PluginSettings.semanticScholarApiKey?: string` (optional; absent by default), read by `semanticScholarClient.ts` (research.md Decision 12, FR-020). It otherwise adds nothing to `Subscription`/`Paper` — it only reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.{summarizationEnabled,semanticScholarApiKey}`, and produces `Paper` values via 001's own `toPaper`.
+- This feature adds three optional fields to 001's baseline, all FR-016-style additive extensions (each optional and absent by default, none removing or redefining a 001 field): `PluginSettings.semanticScholarApiKey?: string` (read by `semanticScholarClient.ts`, research.md Decision 12, FR-020) in `settings.ts`, and `Subscription.coveredFrom?` + `Subscription.backfillState?` (backfill watermarks, FR-033–040) in `subscription.ts`, with `isValidSubscription` widened to accept the latter two. It adds nothing to `Paper`. For forward collection it reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.{summarizationEnabled,semanticScholarApiKey}`; for backfill it additionally reads/writes `Subscription.{coveredFrom,backfillState}`. It produces `Paper` values via 001's own `toPaper` in both cases.
 - No association object (e.g. "which subscription found which paper") is introduced — per 001's data model, that link is explicitly this feature's concern but is not required to be persisted; a paper's `sourceId` alone is sufficient for the dedup/exists-already checks this feature needs (see `CollectionRunState.alreadyPersisted`).
