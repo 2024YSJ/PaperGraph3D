@@ -49,6 +49,9 @@ export interface PaperCandidate {
   abstract: string;
   sourceId: PaperSourceId;
   references: PaperSourceId[] | undefined; // FR-016 extension; undefined = not fetched yet (see below)
+  embedding: number[] | undefined;              // FR-019; undefined = not yet computed at collection time
+  embeddingModel: string | undefined;           // FR-020; model id + version
+  embeddingSource: 'local' | 'llm' | undefined; // FR-020; provenance of the vector
 }
 
 export interface Paper {
@@ -60,6 +63,9 @@ export interface Paper {
   abstract: string;
   sourceId: PaperSourceId;
   references: PaperSourceId[]; // FR-016 extension; outbound citations (see below)
+  embedding: number[] | null;              // FR-019 core; null = pending, never a hold-back trigger
+  embeddingModel: string | null;           // FR-020; null = pending
+  embeddingSource: 'local' | 'llm' | null; // FR-020; null = pending
 }
 
 export function isPaperSourceId(value: string): value is PaperSourceId;
@@ -75,6 +81,7 @@ export function isValidPaper(data: unknown): data is Paper;
 - `isValidPaper` returns `false` for any input missing a field, with the wrong type for a field, with a non-finite/missing `publicationYear`, with a negative or non-finite `citationCount`, or with a non-boolean `citationsKnown` — never throws. `references` must be an array in which every element is a valid `PaperSourceId` (an empty array is valid).
 - `references` is an **FR-016 additive extension** to the 001 baseline, fixed here so the downstream collection/note-saving/graph-conversion features (`260702-002`/`003`/`006`) share one definition. It holds the sourceIds of the papers this paper *cites* (outbound only); `citedBy` is never stored — the graph feature derives it by inverting `references`. Populating `references` is those later features' responsibility; this contract only fixes its shape and validation.
 - `citationsKnown` (FR-018) is `true` only when `citationCount`/`references` came from a citation-aware provider; consumers that branch on citation status (`260702-004` future-directions text, `260702-007` uncited-node styling) MUST check `citationsKnown` together with `citationCount` — a `citationCount === 0` with `citationsKnown === false` is "unknown," not "confirmed uncited." Correcting a `false` flag later (re-enrichment, or manual refresh `260702-005`) is out of scope for this contract.
+- `embedding` (FR-019, a core field) is L2-normalized over title + abstract and is **never a hold-back trigger** (FR-021): `toPaper` carries `embedding`/`embeddingModel`/`embeddingSource` through, defaulting any `undefined` to `null` (pending). `isValidPaper` accepts a `null` (pending) embedding but requires the keys present — `embedding` must be `null` or an array of finite numbers, `embeddingModel` must be `null` or a string, and `embeddingSource` must be `null`/`'local'`/`'llm'`. Only papers sharing one `embeddingModel` space may be jointly projected (`260702-006`); switching providers requires re-embedding. The local baseline is computed by `260702-002`; an optional LLM embedding by `260702-004`. Populating the vector is those features' responsibility; this contract fixes only its shape and validation.
 - Two `Paper`/`PaperCandidate` values with equal `sourceId` MUST be treated as the same paper; the inverse (different `sourceId` ⇒ different paper) is guaranteed only within a single provider, not across providers.
 
 ## `src/models/settings.ts`

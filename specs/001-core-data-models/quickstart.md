@@ -56,6 +56,7 @@ const withYear = toPaper({
   authors: ['Vaswani'], citationCount: 100000, abstract: '...',
   sourceId: 'arxiv:1706.03762',
   references: ['arxiv:1409.0473'], // outbound citations (FR-016 field); empty [] is also valid
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined, // not computed yet (FR-019)
 });
 check('paper with known year becomes valid Paper', withYear !== undefined && isValidPaper(withYear));
 
@@ -64,6 +65,7 @@ const withoutYear = toPaper({
   authors: [], citationCount: 0, abstract: '',
   sourceId: 'arxiv:9999.99999',
   references: [],
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('paper with unknown year is held back (undefined), not created', withoutYear === undefined);
 
@@ -74,6 +76,7 @@ check('malformed sourceId rejected', !isPaperSourceId('1706.03762'));
 check('paper with a non-sourceId reference is rejected', !isValidPaper({
   title: 't', publicationYear: 2017, authors: [], citationCount: 0, citationsKnown: true, abstract: '',
   sourceId: 'arxiv:1', references: ['not-a-sourceid'],
+  embedding: null, embeddingModel: null, embeddingSource: null,
 }));
 
 // citationsKnown (FR-018): missing citation data never holds a paper back — it is promoted
@@ -83,6 +86,7 @@ const enrichedUnknown = toPaper({
   title: 'arXiv-only preprint', publicationYear: 2024,
   authors: [], citationCount: undefined, abstract: '',
   sourceId: 'arxiv:2401.00001', references: undefined,
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('paper promoted without citation data is NOT held back', enrichedUnknown !== undefined);
 check('citationsKnown is false when citation data was never fetched', enrichedUnknown?.citationsKnown === false);
@@ -91,12 +95,30 @@ const confirmedUncited = toPaper({
   title: 'Confirmed uncited paper', publicationYear: 2024,
   authors: [], citationCount: 0, abstract: '',
   sourceId: 'arxiv:2401.00002', references: [],
+  embedding: undefined, embeddingModel: undefined, embeddingSource: undefined,
 });
 check('citationsKnown is true when citation data was actually fetched', confirmedUncited?.citationsKnown === true);
 
 check('paper missing citationsKnown is rejected', !isValidPaper({
   title: 't', publicationYear: 2017, authors: [], citationCount: 0, abstract: '',
+  sourceId: 'arxiv:1', references: [], embedding: null, embeddingModel: null, embeddingSource: null,
+}));
+
+// content embedding (FR-019/FR-021): a promoted paper carries embedding fields; a pending (null)
+// embedding is still valid and never holds a paper back — the vector is filled later by 260702-002.
+check('paper promoted with a pending (null) embedding is still valid',
+  withYear !== undefined && withYear.embedding === null && isValidPaper(withYear));
+
+check('a populated embedding is accepted', isValidPaper({
+  title: 't', publicationYear: 2017, authors: [], citationCount: 0, citationsKnown: true, abstract: '',
   sourceId: 'arxiv:1', references: [],
+  embedding: [0.1, 0.2, 0.3], embeddingModel: 'bge-small-en-v1.5', embeddingSource: 'local',
+}));
+
+check('a non-array embedding is rejected', !isValidPaper({
+  title: 't', publicationYear: 2017, authors: [], citationCount: 0, citationsKnown: true, abstract: '',
+  sourceId: 'arxiv:1', references: [],
+  embedding: 'nope' as any, embeddingModel: null, embeddingSource: null,
 }));
 ```
 

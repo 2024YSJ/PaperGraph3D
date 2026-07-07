@@ -1,8 +1,14 @@
 <!--
 Sync Impact Report
 ==================
-Version change: [TEMPLATE] → 1.0.0 (initial concrete ratification)
-Modified principles: N/A (first time placeholders are filled in)
+Version change: 1.0.0 → 1.1.0 (amendment 2026-07-07: desktop-only platform decision + LLM embedding disclosure)
+Modified principles:
+  - I. Obsidian Plugin Platform Compliance — mobile-default note now records the
+    deliberate desktop-only decision for PaperGraph3D (features 006/007)
+  - IV. Transparent Use of Sensitive APIs — optional LLM embedding providers
+    (Claude / Gemini / OpenAI) noted as disclosed opt-in external calls
+New/updated sections: Additional Constraints → "Platform target (desktop-only)" bullet
+Prior history: [TEMPLATE] → 1.0.0 (initial concrete ratification); modified principles then: N/A (first time placeholders filled in)
 Added sections:
   - I. Obsidian Plugin Platform Compliance
   - II. Lifecycle-Safe Resource Management (NON-NEGOTIABLE)
@@ -42,7 +48,12 @@ via `tsc --noEmit`, then production bundle) MUST succeed before any release,
 and the release artifacts (`main.js`, `manifest.json`, `styles.css`) MUST end
 up at the plugin root, matching the `<Vault>/.obsidian/plugins/<id>/` layout.
 Code MUST default to mobile-compatible APIs; Node/Electron-only APIs are only
-allowed when `isDesktopOnly` is deliberately set and documented.
+allowed when `isDesktopOnly` is deliberately set and documented. PaperGraph3D
+has made that deliberate, documented decision: the 3D graph, native local
+content-embedding, and in-memory 2D projection (features 006/007) require
+desktop/Electron capabilities, so `manifest.json` sets `isDesktopOnly: true`
+and mobile support is intentionally dropped (see Additional Constraints →
+Platform target).
 
 **Rationale**: Obsidian only loads one bundle and enforces a specific plugin
 folder shape — deviating breaks installation for every user, on every
@@ -116,6 +127,15 @@ including the maintainer's own.
 
 ## Additional Constraints
 
+- **Platform target (desktop-only)**: PaperGraph3D is a **desktop-only** plugin
+  — `manifest.json` `isDesktopOnly: true`. This is the deliberate, documented
+  exception Principle I allows: the 3D visualization (007) and native local
+  content-embedding + 2D projection (002/006) depend on desktop/Electron
+  capabilities not viable on Obsidian mobile. Optional summary/embedding
+  upgrades may call external LLM providers (Claude / Gemini / OpenAI); like all
+  sensitive-API use these are opt-in, credential-gated, and disclosed per
+  Principle IV, and the plugin still functions fully offline (local baseline
+  embedding, no summaries) with them off.
 - **Toolchain lock-in**: npm is the package manager and esbuild is the
   bundler; `esbuild.config.mjs` and the npm scripts are the source of truth
   for how `src/main.ts` becomes `main.js`.
@@ -164,4 +184,4 @@ there for needed edits. `/speckit-plan` MUST cite the specific principles a
 feature's design satisfies or deviates from; deviations require justification
 recorded in that feature's `plan.md` Complexity Tracking section.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-02
+**Version**: 1.1.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-07
