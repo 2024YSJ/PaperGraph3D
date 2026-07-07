@@ -30,10 +30,19 @@ export function parseSemanticScholarPaper(body: unknown): SemanticScholarPaper {
 				continue;
 			}
 			const reference = raw as Record<string, unknown>;
-			references.push({
-				arxivId: readArxivId(reference.externalIds),
-				semanticScholarId: typeof reference.paperId === 'string' ? reference.paperId : '',
-			});
+			const arxivId = readArxivId(reference.externalIds);
+			const semanticScholarId = typeof reference.paperId === 'string' ? reference.paperId : '';
+			// Semantic Scholar sometimes returns a reference with no externalIds.ArXiv AND a
+			// null/missing paperId (a stub record for a paper it has minimal metadata for).
+			// Without either identifier, toPaperSourceId would build `semanticScholar:` with an
+			// empty local part — an id 001's isPaperSourceId explicitly rejects as useless, which
+			// would make the enriched paper fail isValidPaper. Skip such a reference entirely
+			// rather than propagate an invalid sourceId (same "skip, don't corrupt" pattern as
+			// arxivParser.ts's parseArxivEntry, research.md Decision 28).
+			if ((arxivId === undefined || arxivId.length === 0) && semanticScholarId.length === 0) {
+				continue;
+			}
+			references.push({ arxivId, semanticScholarId });
 		}
 	}
 
