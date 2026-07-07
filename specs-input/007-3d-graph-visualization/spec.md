@@ -16,6 +16,11 @@
 - Q: When an interaction opens or changes a paper (open note, refresh, remove), what does it act on? → A: Opening a paper opens its Markdown note (the user-facing surface). Refresh runs through 005 and remove-from-graph, if it deletes, runs through 003's coordinated delete of the record + note pairing. This feature originates the user intent but delegates the data operation.
 - Q: Does "remove from graph" delete the paper or just hide it? → A: This must be unambiguous to the user. "Remove from graph" hides the node from the current view by default; deleting the underlying record/note is a distinct, clearly-labeled, confirmed action because deletion is irreversible.
 
+### Session 2026-07-07
+
+- Q: What determines node x,y? → A: x,y come from 006's **content-similarity projection** (the projection of each paper's content embedding, 001 FR-019); publication year remains fixed to the separate axis (FR-001, unchanged). Content-similar papers cluster in x,y and, because year owns the depth axis, the same topic across different years stacks into a vertical "column" through the year planes.
+- Q: Mobile support? → A: The chosen approach (native local embedding + 3D + projection) is **desktop-only**. `manifest.json` sets `isDesktopOnly: true`; this closes OQ-7 as a deliberate, recorded decision to drop mobile support.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See papers arranged by publication year in 3D (Priority: P2)
@@ -111,6 +116,8 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-011**: When there are no papers to show, a message MUST be shown instead of a blank screen.
 - **FR-012**: "Remove from graph" MUST make clear whether it hides the node or deletes the underlying data; the deleting variant MUST be separately labeled and confirmed before running, because deletion is irreversible.
 - **FR-013**: This feature MUST consume graph data from 006 and MUST NOT parse vault files or contact external providers directly.
+- **FR-014**: Node x,y placement MUST use the content-similarity projection provided by 006 (FR-008); the plugin MUST NOT re-derive positions from vault files itself (consistent with FR-013). Publication year remains fixed to the separate axis (FR-001). When a projection refit (006 FR-010) changes positions, the view SHOULD animate the transition rather than snapping.
+- **FR-015**: The plugin is desktop-only (`manifest.json` `isDesktopOnly: true`). The 3D rendering, local embedding, and projection MAY use Node/Electron/native capabilities accordingly, consistent with the constitution's platform-compliance rule for an intentional desktop-only plugin.
 
 ### Key Entities
 
@@ -128,6 +135,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **SC-004**: Each right-click action produces an immediately observable result (note opens, clipboard copied, read state toggles, node disappears, refresh reflected).
 - **SC-005**: With zero papers, a message is shown rather than a blank screen.
 - **SC-006**: Any deleting "remove" action is confirmed before it irreversibly deletes the record+note pairing.
+- **SC-007**: Node x,y reflects content similarity (similar papers cluster), while every year still maps to a distinct plane on the fixed axis (SC-001 preserved).
 
 ## Assumptions
 
@@ -140,13 +148,13 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 
 *Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
 
-- **OQ-1 — Intra-year-plane layout.** How are nodes positioned on the two non-year axes — force-directed, citation-driven, or a deterministic layout? (001's `layout` setting is a placeholder.)
+- **OQ-1 — Intra-year-plane layout. [RESOLVED 2026-07-07]** x,y = content-similarity projection from 006 (default PCA with sign-canonicalization, optional UMAP cluster mode). 001's `layout` setting maps to this projection-mode choice.
 - **OQ-2 — `colorScheme` meaning.** What does the graph-display color scheme (e.g. `byPublicationYear`) actually encode?
 - **OQ-3 — "Most recent" definition** for the uncited highlight — same question as 004 OQ-1.
 - **OQ-4 — Hide persistence.** When "remove from graph" only hides a node, is that hidden state persisted across sessions or session-only?
-- **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it.
+- **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it. Now also covers projection cost, mitigated by the cached-basis / out-of-sample policy (006 FR-010).
 - **OQ-6 — Read/unread default and storage shape** — the default state and the extension-field representation (coordinate with 003).
-- **OQ-7 — Mobile viability and `isDesktopOnly`.** The 3D rendering/interaction choice (OQ-1) decides whether the plugin can run on Obsidian mobile. `manifest.json` currently sets `isDesktopOnly: false` — the project default, per the constitution's mobile-compatibility principle, and consistent with the rest of the plugin (network via `requestUrl`, vault I/O) being mobile-capable. If the chosen 3D approach depends on Node/Electron APIs, or is unusable at acceptable performance on touch/mobile, then `isDesktopOnly` must flip to `true`. That is a deliberate decision to drop mobile support — to be recorded here and in the constitution's platform-compliance/mobile notes, not defaulted. Decide during 007 planning: keep the rendering mobile-compatible, or commit to desktop-only and set the manifest flag accordingly.
+- **OQ-7 — Mobile viability and `isDesktopOnly`. [RESOLVED 2026-07-07 → desktop-only]** The 3D rendering/interaction choice (OQ-1) decides whether the plugin can run on Obsidian mobile. `manifest.json` currently sets `isDesktopOnly: false` — the project default, per the constitution's mobile-compatibility principle, and consistent with the rest of the plugin (network via `requestUrl`, vault I/O) being mobile-capable. If the chosen 3D approach depends on Node/Electron APIs, or is unusable at acceptable performance on touch/mobile, then `isDesktopOnly` must flip to `true`. That is a deliberate decision to drop mobile support — to be recorded here and in the constitution's platform-compliance/mobile notes, not defaulted. **Decision (2026-07-07):** committed to **desktop-only** — `manifest.json` `isDesktopOnly` is set to `true` — to allow native local content-embedding, 3D rendering, and in-memory projection; recorded here and in the constitution's platform-compliance / mobile notes.
 
 ## Out of Scope
 

@@ -16,6 +16,11 @@
 - Q: Where does generated summary / future-directions text live? → A: In the paper's canonical JSON record (as plugin-managed fields) and mirrored into the Markdown note's managed region, using the same synchronized pairing from 003. Generated text is plugin-managed content, never written into the user's free-form body.
 - Q: Which papers get future-directions text versus only a summary? → A: A paper that nobody has cited yet (citation count of zero / no inbound citations) receives a future-directions description in addition to the summary; already-cited papers receive only the summary.
 
+### Session 2026-07-07
+
+- Q: Does the mandatory content-embedding baseline belong to this opt-in feature? → A: **No.** The baseline content embedding is a core, always-on capability owned by the collection pipeline (002 FR-019), not gated by this feature's opt-in. This feature only **optionally upgrades** the embedding to an LLM-provider embedding (Claude / Gemini / OpenAI) when the user configures a provider and credentials, alongside summary/future-directions text. Turning this feature off MUST leave the baseline embedding — and therefore the similarity layout (006/007) — fully working.
+- Q: Are summarization and the embedding upgrade a single switch? → A: No — they are **independent toggles** sharing this feature's provider/credential surface where possible. A user may enable the LLM embedding upgrade without summaries, or summaries without the embedding upgrade.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Opt in to summaries (Priority: P2)
@@ -85,11 +90,14 @@ As a user, I want to choose which provider generates summaries and enter the req
 - **FR-007**: If generation fails, times out, or returns text that is empty or too short, the feature MUST fall back to the original abstract and still complete note/record creation.
 - **FR-008**: If credentials are invalid, the user MUST be informed.
 - **FR-009**: Turning the feature off MUST prevent any further summarization calls, including discarding any in-flight generation.
+- **FR-010**: When an embedding-capable LLM provider and credentials are configured, this feature MAY generate an LLM content embedding to replace the paper's local baseline embedding (001 FR-019/FR-020), setting `embeddingSource = llm`. This is optional and strictly additive: with it off, the local baseline embedding is used and the similarity layout (006/007) still works.
+- **FR-011**: The summarization toggle and the LLM-embedding toggle MUST be independent — enabling either MUST NOT require the other. Provider/credential selection MAY be shared across both.
+- **FR-012**: An LLM embedding failure, timeout, or invalid credential MUST fall back to the retained local baseline embedding and MUST NOT block persistence — mirroring the abstract fallback for summaries (FR-007).
 
 ### Key Entities
 
 - **Paper Record (JSON)** / **Paper Note (Markdown)**: As defined in 003 (the logical Paper shape is 001); this feature adds summary and (conditionally) future-directions fields to the managed content via 003's synchronized pairing.
-- **Summarization Settings**: The on/off flag (from 001) plus the chosen provider and credentials, which are extension fields (001 FR-016) defined by this feature and surfaced in the summarization section of the settings screen (008). Credentials are sensitive and handled per the project's transparent-use policy.
+- **Summarization Settings**: The on/off flag (from 001) plus the chosen provider and credentials, which are extension fields (001 FR-016) defined by this feature and surfaced in the summarization section of the settings screen (008). Credentials are sensitive and handled per the project's transparent-use policy. This section also carries an **independent embedding-upgrade on/off flag** and (optionally distinct) embedding provider/credentials; the summarization and embedding toggles are independent (FR-011), broadening this feature's scope from "summary text" to "LLM-based paper enrichment (summary text + optional embedding upgrade)".
 
 ## Success Criteria *(mandatory)*
 
@@ -113,6 +121,8 @@ As a user, I want to choose which provider generates summaries and enter the req
 - **OQ-2 — Summarization provider contract.** What kind of provider is supported (which LLM/API), and its request/response shape and auth/credential format?
 - **OQ-3 — "Too short / empty" threshold** that triggers the abstract fallback (FR-007).
 - **OQ-4 — Recomputation.** If a paper later transitions uncited → cited (via refresh 005), or its abstract changes, is the summary/future-directions text regenerated, or kept as first generated? *(See 005 Open Questions.)*
+- **OQ-5 — Embedding-provider contract.** Which of Claude / Gemini / OpenAI embedding endpoints are supported, their vector dimensions, and auth shape (may differ from the summarization/chat endpoint).
+- **OQ-6 — Retain both embeddings or overwrite?** Keep both the local baseline and the LLM embedding per paper, or overwrite the baseline on upgrade? Affects re-projection when the provider is toggled (001 FR-020, 006).
 
 ## Out of Scope
 

@@ -16,6 +16,11 @@
 - Q: How are citation directions determined? → A: Each record carries its outbound references (the papers it cites). A directional connection A→B is created when record A's references include B. Inbound "cited-by" is derived by inverting these connections; it is never stored.
 - Q: What happens to a reference whose target paper is not stored in the vault? → A: The connection to a missing target is either ignored or handled separately (e.g., not drawn) rather than fabricating a node for it; conversion never fails because of a dangling reference.
 
+### Session 2026-07-07
+
+- Q: Does conversion compute node positions, or only produce abstract nodes/edges? → A: Conversion now also produces the **x,y layout** by projecting every node's content embedding (001 FR-019) into 2D, so content-similar papers are placed near each other. It does **not** project the year axis — publication year is carried on each node for 007 to map to the fixed year axis. This remains data production, not drawing (FR-007 still holds).
+- Q: What projection, and how is it kept stable as papers accumulate? → A: The default is **PCA** (deterministic, with fixed sign-canonicalization so the layout never mirror-flips between runs). New papers are placed onto a **cached projection basis** (out-of-sample) instead of re-solving the whole layout each time; the basis is refit only on defined triggers. An optional higher-separation projection (UMAP) MAY be offered but is not the default. Only embeddings sharing one `embeddingModel` space (001 FR-020) may be projected together.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Produce nodes and connections for the display feature (Priority: P2)
@@ -52,13 +57,17 @@ As the developer building the on-screen display, I want to receive already-organ
 - **FR-004**: Inbound "cited-by" information, if needed by the display, MUST be derived by inverting the directional connections rather than stored separately.
 - **FR-005**: A reference whose target paper is not stored MUST NOT cause conversion to fail; the dangling connection is ignored or handled separately.
 - **FR-006**: A single malformed record MUST NOT fail the whole conversion; it is skipped and the remaining records are still converted.
-- **FR-007**: This conversion MUST NOT draw anything on screen; it produces only a data structure (nodes + connections).
+- **FR-007**: This conversion MUST NOT draw anything on screen; it produces only a data structure (nodes + connections, and their computed x,y positions).
+- **FR-008**: Conversion MUST compute a two-dimensional similarity layout (x,y) for every node by projecting the nodes' content embeddings (001 FR-019) into 2D, such that content-similar papers are positioned near one another. The publication-year axis MUST NOT be part of this projection; each node carries its publication year for 007 to place on the fixed year axis.
+- **FR-009**: The default projection MUST be deterministic and reproducible — PCA with a fixed sign-canonicalization rule — so the same records yield the same layout across runs. Only embeddings sharing one `embeddingModel` space (001 FR-020) may be projected together. An optional non-linear "cluster mode" projection (e.g., UMAP) MAY be provided but MUST NOT be the default.
+- **FR-010**: To keep the layout stable as the corpus grows, conversion MUST place new nodes onto a **cached projection basis** (out-of-sample) rather than re-solving the full projection each time. The basis MUST be refit only on defined triggers: corpus growth beyond a threshold, an explicit user "recompute layout" action, or an `embeddingModel`/space change. The basis is a regenerable plugin-managed cache (003 FR-016), never per-paper state.
+- **FR-011**: A node whose embedding is pending or absent (001 FR-021) MUST still be assigned a deterministic fallback position within its year plane and MUST NOT cause conversion to fail — consistent with the existing rule that one malformed record never fails the whole conversion (FR-006).
 
 ### Key Entities
 
-- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs, e.g., source identifier, citation status), read from a Paper's JSON record (persistence owned by 003).
+- **Node**: A converted paper, carrying at least title and publication year (plus whatever the display needs, e.g., source identifier, citation status), read from a Paper's JSON record (persistence owned by 003), plus an (x,y) layout position derived from its content embedding via the similarity projection; its publication year is carried separately for the year axis.
 - **Connection**: A directional edge A→B meaning paper A cites paper B, derived from A's outbound references.
-- **Graph Data**: The pair of (node list, connection list) handed to the display feature. Transient output, not persisted as its own file.
+- **Graph Data**: The (node list, connection list) — now including each node's computed (x,y) position — handed to the display feature. Transient output, not persisted as its own file; it references the regenerable projection basis (003 FR-016).
 
 ## Success Criteria *(mandatory)*
 
@@ -68,6 +77,8 @@ As the developer building the on-screen display, I want to receive already-organ
 - **SC-002**: A directional connection exists between exactly the paper pairs that have a citation relationship in the records.
 - **SC-003**: Conversion completes successfully even when records contain dangling references or a malformed entry — zero total-conversion failures from a single bad record.
 - **SC-004**: Conversion reads only JSON records; zero graph output depends on parsing a user's Markdown body.
+- **SC-005**: Content-similar papers are placed measurably closer in (x,y) than dissimilar ones; the same records reproduce the same layout across runs (deterministic default).
+- **SC-006**: Adding a new paper places it via the cached basis without moving existing nodes (no full re-solve) except on an explicit refit trigger.
 
 ## Assumptions
 
@@ -80,9 +91,11 @@ As the developer building the on-screen display, I want to receive already-organ
 
 - **OQ-1 — Empty references: "cites nothing" vs "not yet enriched".** Conversion cannot distinguish the two, so real citation edges may be silently missing until enrichment/refresh. Accept this, or require an "enriched" signal (002 OQ-5 / 003 OQ-1) so conversion can tell them apart?
 - **OQ-2 — Reference scheme and edge matching.** Whether an edge connects depends on the reference `sourceId` scheme chosen in 002 (OQ-4): a reference whose scheme/prefix differs from stored papers' `sourceId`s becomes a dangling edge. The scheme must be confirmed so edges resolve.
+- **OQ-3 — Refit trigger thresholds.** How much corpus growth forces a basis refit (e.g., ≥20% or ≥K new papers since last fit).
+- **OQ-4 — UMAP mode and projection library.** Whether to ship the optional UMAP cluster mode in v1 (PCA-only first?), and the desktop-native projection library/approach (007 is desktop-only).
 
 ## Out of Scope
 
-- Actual on-screen rendering and interaction are owned by 007.
+- Actual on-screen rendering and interaction are owned by 007. (Conversion now owns the x,y layout **data** — the projection — but 007 still owns rendering/interaction and the mapping of publication year to the depth axis.)
 - Creating, modifying, or deleting record/note files is owned by 003; this feature is read-only over stored records.
 - Fetching or refreshing citation data is owned by 002/005.
