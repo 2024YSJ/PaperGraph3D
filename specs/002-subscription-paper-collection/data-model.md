@@ -66,19 +66,31 @@ A **second**, independent window — not a `CollectionWindow` and not fed into `
 ```ts
 // Undefined when there is nothing meaningful to re-scan: a subscription's first check
 // (no already-checked span exists yet) or a clock-backward check (empty frontier window).
+//
+// Takes the FRONTIER window as an explicit parameter — NOT a fresh read of
+// subscription.lastCheckedAt — and anchors `to` to `frontierWindow.from`. This is load-bearing:
+// by the time a caller might otherwise compute this window, `recordChecked` may already have
+// advanced `lastCheckedAt` (the scheduler calls `onSubscriptionChecked` before the lag re-scan,
+// see below), so re-reading `subscription.lastCheckedAt` at that point is ambiguous — a stale
+// object reference gives the correct pre-check value, but re-fetching via `getSubscriptions()`
+// gives the already-advanced value, silently shrinking the re-scan to almost nothing and losing
+// exactly the span FR-041 exists to catch (worst case: the entire pre-catch-up lag span after a
+// long off-period). Passing `frontierWindow` — a plain number captured once, before any
+// mutation — removes the ambiguity by construction.
 function computeLagOverlapWindow(
+  frontierWindow: { from: number; to: number },
   subscription: Pick<Subscription, 'lastCheckedAt' | 'coveredFrom'>,
   now: number,
 ): { from: number; to: number } | undefined {
   if (subscription.lastCheckedAt === null || subscription.lastCheckedAt > now) return undefined;
   return {
-    from: Math.max(subscription.lastCheckedAt - ANNOUNCEMENT_LAG_MS, subscription.coveredFrom ?? -Infinity),
-    to: subscription.lastCheckedAt,
+    from: Math.max(frontierWindow.from - ANNOUNCEMENT_LAG_MS, subscription.coveredFrom ?? -Infinity),
+    to: frontierWindow.from,
   };
 }
 ```
 
-An ordinary check's tick-processing logic (scheduler.ts) runs this **after** the frontier query succeeds: it computes this window, and — if defined — issues a *second* `runCheck` call over it, discarding the result entirely (no `recordChecked`, no cursor, nothing persisted). This is what lets a high-volume subscription's frontier query keep advancing every check regardless of whether the lag re-scan's own paging cap is exceeded — the two queries are fully decoupled, so the lag re-scan being truncated (as it often will be for a busy category, since `ANNOUNCEMENT_LAG_MS` = 4 days of a high-volume category can itself exceed the paging cap) never stalls forward progress; it is simply retried, over a window that has itself shifted forward, on the next check. `Math.max(..., coveredFrom ?? -Infinity)` keeps the re-scan from crossing into territory only a backfill (or nothing yet) has covered.
+An ordinary check's tick-processing logic (scheduler.ts) computes **both** `frontierWindow` and this lag window **together, upfront**, from the same pre-check subscription snapshot — before running either query. The frontier `runCheck` runs first; only after it succeeds does the scheduler, if this window is defined, issue a *second* `runCheck` call over the already-computed lag window, discarding the result entirely (no `recordChecked`, no cursor, nothing persisted). This is what lets a high-volume subscription's frontier query keep advancing every check regardless of whether the lag re-scan's own paging cap is exceeded — the two queries are fully decoupled, so the lag re-scan being truncated (as it often will be for a busy category, since `ANNOUNCEMENT_LAG_MS` = 4 days of a high-volume category can itself exceed the paging cap) never stalls forward progress; it is simply recomputed (from a fresh `frontierWindow`/lag-window pair) and retried on the next check. `Math.max(..., coveredFrom ?? -Infinity)` keeps the re-scan from crossing into territory only a backfill (or nothing yet) has covered.
 
 ## Subscription backfill state (User Story 5)
 

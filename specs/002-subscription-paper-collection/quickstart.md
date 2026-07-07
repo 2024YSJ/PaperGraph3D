@@ -470,38 +470,64 @@ import { computeLagOverlapWindow } from '../src/collection/scheduler';
 
 // The frontier window (computeCollectionWindow) is EXACTLY what it was before FR-041 existed —
 // no lag term, no coveredFrom parameter at all. This is what drives lastCheckedAt.
-const frontierOnly = computeCollectionWindow({ lastCheckedAt: now - 10 * 60 * 1000 }, now);
+const preCheckSub = { lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: null };
+const frontierOnly = computeCollectionWindow(preCheckSub, now);
 check(
   'the frontier window is exactly [lastCheckedAt, now] — FR-041 does not widen it',
-  frontierOnly.from === now - 10 * 60 * 1000 && frontierOnly.to === now,
+  frontierOnly.from === preCheckSub.lastCheckedAt && frontierOnly.to === now,
 );
 
-// The lag re-scan is a SEPARATE window computed by a separate function.
-const lagWindow = computeLagOverlapWindow({ lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: null }, now);
+// The lag re-scan is a SEPARATE window, computed from the already-computed frontierOnly window
+// (not from a fresh read of subscription.lastCheckedAt).
+const lagWindow = computeLagOverlapWindow(frontierOnly, preCheckSub, now);
 check(
-  "the lag re-scan window reaches at least 4 days into the past, ending at lastCheckedAt (not now) — it re-covers already-checked history, catching arXiv papers not yet announced when the prior check ran",
-  lagWindow !== undefined && now - 10 * 60 * 1000 - lagWindow.from >= 4 * 24 * 60 * 60 * 1000 - 1000 && lagWindow.to === now - 10 * 60 * 1000,
+  "the lag re-scan window reaches at least 4 days into the past, ending at the frontier window's own from (not now) — it re-covers already-checked history, catching arXiv papers not yet announced when the prior check ran",
+  lagWindow !== undefined && frontierOnly.from - lagWindow.from >= 4 * 24 * 60 * 60 * 1000 - 1000 && lagWindow.to === frontierOnly.from,
 );
 
 // The lag re-scan must not cross below the subscription's own backward floor (coveredFrom) —
 // that territory belongs to backfill.
-const lagClampedByFloor = computeLagOverlapWindow(
-  { lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: now - 6 * 60 * 60 * 1000 }, // floor only 6h back
-  now,
-);
+const flooredSub = { lastCheckedAt: now - 10 * 60 * 1000, coveredFrom: now - 6 * 60 * 60 * 1000 }; // floor only 6h back
+const lagClampedByFloor = computeLagOverlapWindow(computeCollectionWindow(flooredSub, now), flooredSub, now);
 check(
   'the lag re-scan is clamped at coveredFrom, never reaching further back than the backward floor',
   lagClampedByFloor !== undefined && lagClampedByFloor.from === now - 6 * 60 * 60 * 1000,
 );
 
 // A subscription's first check and a clock-backward check have no lag re-scan at all.
+const firstCheckSub = { lastCheckedAt: null, coveredFrom: null };
 check(
-  'no lag re-scan on a subscription\'s first check (nothing already-checked to re-scan)',
-  computeLagOverlapWindow({ lastCheckedAt: null, coveredFrom: null }, now) === undefined,
+  "no lag re-scan on a subscription's first check (nothing already-checked to re-scan)",
+  computeLagOverlapWindow(computeCollectionWindow(firstCheckSub, now), firstCheckSub, now) === undefined,
 );
+const backwardSub = { lastCheckedAt: now + 1000, coveredFrom: null };
 check(
   'no lag re-scan on a clock-backward check',
-  computeLagOverlapWindow({ lastCheckedAt: now + 1000, coveredFrom: null }, now) === undefined,
+  computeLagOverlapWindow(computeCollectionWindow(backwardSub, now), backwardSub, now) === undefined,
+);
+```
+
+### The lag re-scan is anchored to the frontier window actually used, immune to lastCheckedAt having already advanced by the time it's computed (FR-041, research.md Decision 39 — the fix for a stale-vs-fresh-object ambiguity)
+
+```ts
+// Simulates the real tick-processing order: window/lagWindow computed FIRST, from one snapshot;
+// only afterward does a (simulated) recordChecked advance lastCheckedAt — mirroring
+// onSubscriptionChecked firing before the lag re-scan is issued.
+const preAdvanceSub = { lastCheckedAt: now - 30 * 24 * 60 * 60 * 1000, coveredFrom: now - 60 * 24 * 60 * 60 * 1000 }; // 30 days stale, e.g. after a long off-period
+const capturedFrontierWindow = computeCollectionWindow(preAdvanceSub, now);
+const capturedLagWindow = computeLagOverlapWindow(capturedFrontierWindow, preAdvanceSub, now);
+
+// Now simulate lastCheckedAt having been advanced by the frontier check's own recordChecked —
+// as it would be by the time a naive implementation might (wrongly) recompute the lag window.
+const postAdvanceSub = { ...preAdvanceSub, lastCheckedAt: now };
+
+check(
+  "the CAPTURED lag window (computed upfront, per the correct design) still targets the pre-check span — the one that actually needed re-scanning — not a collapsed near-now span",
+  capturedLagWindow !== undefined && capturedLagWindow.to === preAdvanceSub.lastCheckedAt,
+);
+check(
+  'a naive re-computation against the POST-advance subscription would have produced a materially different (wrong) window — this is exactly the bug Decision 39 closes by making frontierWindow a required parameter',
+  computeLagOverlapWindow(computeCollectionWindow(postAdvanceSub, now), postAdvanceSub, now)!.to !== capturedLagWindow!.to,
 );
 ```
 
