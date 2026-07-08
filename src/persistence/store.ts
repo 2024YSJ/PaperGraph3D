@@ -25,7 +25,7 @@ export class PaperStore {
 	private readonly chain = new Map<string, Promise<unknown>>();
 
 	constructor(
-		private readonly fs: FileStore,
+		private fs: FileStore,
 		private readonly options: PaperStoreOptions = {},
 	) {}
 
@@ -106,6 +106,19 @@ export class PaperStore {
 		}
 	}
 
+	// FR-018: on a storage-folder change, leave existing pairings untouched at the
+	// old folder, re-point at the new folder's FileStore and rebuild the index, and
+	// inform the user that previously stored papers remain in the old location. The
+	// settings change that triggers this is owned by 008, which supplies the new
+	// folder's FileStore and the previous folder path.
+	async onStorageFolderChanged(previousFolder: string, newFileStore: FileStore): Promise<void> {
+		this.fs = newFileStore;
+		await this.load();
+		this.notify(
+			`Storage folder changed. Previously stored papers remain in the old location: ${previousFolder}`,
+		);
+	}
+
 	// FR-015(a): existence check by sourceId (002 dedup) — index-served.
 	has(sourceId: PaperSourceId): boolean {
 		return this.index.has(sourceId);
@@ -159,7 +172,14 @@ export class PaperStore {
 		const record = wrap(input);
 		// Record durably first so an uncontrolled crash leaves a record the note can
 		// be rebuilt from rather than a note with no record (FR-021).
-		await this.fs.write(`${stem}.json`, serialize(record));
+		try {
+			await this.fs.write(`${stem}.json`, serialize(record));
+		} catch (err) {
+			// Nothing was written yet, so there is no half-create to undo — inform the
+			// user (e.g. the storage folder is inaccessible) and propagate (FR-011).
+			this.notify(`Could not write the record (is the storage folder accessible?): ${String(err)}`);
+			throw err;
+		}
 		try {
 			await this.fs.write(`${stem}.md`, renderNote(record, ''));
 		} catch (err) {

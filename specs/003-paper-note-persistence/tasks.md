@@ -177,3 +177,12 @@ After Foundational, one developer can carry the `store.ts` write-path chain (US1
 - User-facing `Notice`s (orphan report in T012, folder inaccessible/moved in T015) MUST follow the bilingual/plain-English policy (constitution Principle V).
 - FR-017 (no live watcher) and FR-019 (delegate sync-conflicts, no own merge) are non-action constraints satisfied by the reconciliation design (T012/T014) + per-paper sidecars — no dedicated task.
 - Commit after each task or logical group; stop at any checkpoint to validate a story independently.
+
+---
+
+## Phase 7: Convergence
+
+**Purpose**: Remaining work found by `/speckit-converge` assessing the current `src/persistence/` code against the spec/plan/tasks. Append-only; complete via `/speckit-implement`.
+
+- [X] T020 Add a storage-folder-change entry point in the persistence layer (a `PaperStore` re-init / `onStorageFolderChanged` method or helper that 008 calls) that leaves existing pairings untouched at the old folder, rebuilds the in-memory index from the new folder, and informs the user that previously stored papers remain in the old location, in `src/persistence/store.ts` per FR-018 (partial)
+- [X] T021 Emit a user-facing notice when the record (`.json`) write fails on create (e.g. the storage folder is inaccessible), not only on the note-write failure, in `src/persistence/store.ts` per FR-011 (partial)

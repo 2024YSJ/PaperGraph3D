@@ -44,6 +44,12 @@ export interface PaperStore {
   // Coordinated tombstoned two-phase delete of the .json+.md pair, incl. the user
   // body (FR-012/FR-021). Caller (007) owns any body-loss confirmation.
   delete(sourceId: PaperSourceId): Promise<void>;
+
+  // FR-018: called by 008 when the storage-folder setting changes. Leaves old
+  // pairings untouched at the previous folder, re-points at the new folder's
+  // FileStore and rebuilds the index, and notifies that previously stored papers
+  // remain in the old location.
+  onStorageFolderChanged(previousFolder: string, newFileStore: FileStore): Promise<void>;
 }
 ```
 
