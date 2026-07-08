@@ -17,6 +17,11 @@
 - Q: What is the boundary the plugin may and may not modify inside a note? → A: The note has a clearly delimited plugin-managed region (mirroring the JSON record's fields) and a free-form body owned entirely by the user. Merges only rewrite the managed region; the user body is never modified or deleted.
 - Q: If the JSON record and Markdown note for a paper fall out of sync (one missing, or shared fields disagree), what happens? → A: That is an inconsistent state (this feature defines record/note consistency and what violates it). On the next operation touching that paper, the plugin reconciles by treating the JSON record as authoritative and rebuilding/repairing the note's managed region; a note with no record is reported to the user rather than silently deleted.
 
+### Session 2026-07-07
+
+- Q: Where is the content embedding stored, and is it mirrored into the note? → A: In the **JSON record only**, as a plugin-managed field (with its `embeddingModel`/`embeddingSource`). It MUST NOT be mirrored into the Markdown note's managed region — an embedding is non-human-readable numeric data, and the note mirrors human-facing fields only.
+- Q: The graph layout (006) uses a projection basis — is that per-paper record state? → A: No. The projection basis is a **global derived artifact**, not per-paper data. It is stored as a **regenerable, plugin-managed cache** inside the designated storage folder (the FR-006 boundary still applies), may be deleted and rebuilt with no data loss, and is never written into a paper's note.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A note (and record) is created for every new paper (Priority: P1)
@@ -94,11 +99,12 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 - **FR-012**: When a paper is removed, both its JSON record and its Markdown note MUST be deleted together.
 - **FR-013**: If a record exists without a note or a note without a record, the feature MUST reconcile on the next operation touching that paper, treating the JSON record as authoritative; a note with no record MUST be reported to the user rather than silently deleted.
 - **FR-014**: Writes to a single paper's pairing MUST be serialized: concurrent operations targeting the same paper — e.g., a collection update (002), a summarization result (004), and a manual refresh (005) — MUST NOT interleave into a partial or inconsistent state. Each completes atomically with respect to the others (or is safely ordered), so the record and note are never left disagreeing.
-- **FR-015**: This feature MUST expose a read capability over the stored records — at minimum an existence check by source identifier (does a record for this `sourceId` already exist?) and a way to read stored records back into their canonical `Paper` (001) shape — since it owns the on-disk store and is the only feature that reads it. Collection (002) depends on the existence check for its dedup/"already-persisted" skip (002 FR-009), refresh (005) depends on reading a single record back before updating it, and graph conversion (006) depends on reading all records back; none of those features may read the vault files directly. Whether this read is served from an in-memory index or from on-demand file reads is an implementation choice (see Open Questions OQ-6/OQ-8), but the capability itself is a requirement, not optional.
+- **FR-015**: The JSON record MUST persist the paper's content embedding and its `embeddingModel`/`embeddingSource` metadata (001 FR-019/FR-020) as plugin-managed fields. The embedding MUST NOT be mirrored into the Markdown note's plugin-managed region — it is non-human-readable numeric data, and the note mirrors human-facing fields only.
+- **FR-016**: The graph projection basis (006) MUST NOT be stored as a per-paper record or inside any note. It is a regenerable, plugin-managed derived cache within the designated storage folder (the FR-006 boundary applies) that can be deleted and rebuilt without loss; its absence MUST only trigger a recompute, never data loss.
 
 ### Key Entities
 
-- **Paper Record (JSON)**: The canonical, plugin-operated persistence form of a Paper (whose logical shape is defined in 001). Carries every field the plugin needs to run without reading any Markdown; it is the source of truth. **Defined and owned by this feature** — it writes, updates, and deletes it.
+- **Paper Record (JSON)**: The canonical, plugin-operated persistence form of a Paper (whose logical shape is defined in 001). Carries every field the plugin needs to run without reading any Markdown; it is the source of truth. It also persists the paper's content embedding and `embeddingModel`/`embeddingSource` (001 FR-019/FR-020), which are never mirrored into the note. **Defined and owned by this feature** — it writes, updates, and deletes it.
 - **Paper Note (Markdown)**: The user-facing persistence form of the same Paper — a clearly delimited plugin-managed region that mirrors the record, plus a free-form body region owned entirely by the user. **Defined and owned by this feature** — it writes the managed region only, never the body.
 - **Storage Folder**: The user-designated vault folder (default from 001 settings) that is the sole location this feature may touch.
 
@@ -111,6 +117,7 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 - **SC-003**: Re-collecting the same paper creates zero duplicate notes; the existing pairing is updated instead.
 - **SC-004**: Zero files outside the designated storage folder are ever created, modified, or deleted by the plugin.
 - **SC-005**: After any completed add/update/delete, zero papers are left with a record-without-note or note-without-record inconsistency; any pre-existing inconsistency is reconciled on the next operation.
+- **SC-006**: Every persisted record carries the paper's embedding and its model/source metadata; zero embeddings leak into the user-facing note body or managed region.
 
 ## Assumptions
 
@@ -123,7 +130,7 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 
 *Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
 
-- **OQ-1 — Record schema vs the `Paper` interface.** Is the on-disk JSON exactly a serialized `Paper` (001), or a superset carrying metadata — read/unread, summary, future-directions text, an "enriched" flag, created/updated timestamps, a **schema version**? The concrete record schema must be fixed here.
+- **OQ-1 — Record schema vs the `Paper` interface.** Is the on-disk JSON exactly a serialized `Paper` (001), or a superset carrying metadata — read/unread, summary, future-directions text, the **content embedding** vector and its `embeddingModel`/`embeddingSource` (001 FR-019/FR-020), an "enriched" flag, created/updated timestamps, a **schema version**? The concrete record schema must be fixed here.
 - **OQ-2 — Managed-region format in the note.** YAML frontmatter, a delimited comment block (e.g. `<!-- pg3d --> … <!-- /pg3d -->`), or a dedicated heading section?
 - **OQ-3 — Which fields the note mirrors.** All record fields (including raw reference `sourceId`s) or a human-readable subset? Define exactly which fields are "shared" for the consistency invariant (FR-002).
 - **OQ-4 — Rendering of list fields** (authors, references) in the note.
@@ -140,5 +147,5 @@ As a user, I want this plugin to only ever create, modify, or delete files insid
 
 - Where papers come from (external collection) is owned by 002.
 - Generating summaries or future-directions text is owned by 004.
-- Reading notes/records back into graph data is owned by 006 — but the underlying read/existence-check capability those readers call is exposed by *this* feature (FR-015); 006 assembles graph data from it, it does not read vault files itself.
+- Reading notes/records back into graph data is owned by 006.
 - Deleting a paper as a user action from the graph is triggered by 007 but performed through this feature's coordinated delete.

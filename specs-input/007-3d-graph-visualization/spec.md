@@ -16,6 +16,11 @@
 - Q: When an interaction opens or changes a paper (open note, refresh, remove), what does it act on? → A: Opening a paper opens its Markdown note (the user-facing surface). Refresh runs through 005 and remove-from-graph, if it deletes, runs through 003's coordinated delete of the record + note pairing. This feature originates the user intent but delegates the data operation.
 - Q: Does "remove from graph" delete the paper or just hide it? → A: This must be unambiguous to the user. "Remove from graph" hides the node from the current view by default; deleting the underlying record/note is a distinct, clearly-labeled, confirmed action because deletion is irreversible.
 
+### Session 2026-07-07
+
+- Q: What determines node x,y? → A: x,y come from 006's **content-similarity projection** (the projection of each paper's content embedding, 001 FR-019); publication year remains fixed to the separate axis (FR-001, unchanged). Content-similar papers cluster in x,y and, because year owns the depth axis, the same topic across different years stacks into a vertical "column" through the year planes.
+- Q: Mobile support? → A: The chosen approach (native local embedding + 3D + projection) is **desktop-only**. `manifest.json` sets `isDesktopOnly: true`; this closes OQ-7 as a deliberate, recorded decision to drop mobile support.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See papers arranged by publication year in 3D (Priority: P2)
@@ -46,7 +51,7 @@ As a user, I want to hover a node for its summary and citation info, click it to
 
 1. **Given** a node, **When** the user hovers it, **Then** a panel appears containing that paper's summary and citation information.
 2. **Given** a node, **When** the user clicks it, **Then** that paper's Markdown note opens.
-3. **Given** papers confirmed as uncited (`citationsKnown = true`, `citationCount = 0`), **When** the graph is displayed, **Then** they are visually distinguished from other nodes; **given** a paper whose citation status is unconfirmed (`citationsKnown = false`), **When** the graph is displayed, **Then** it is shown neither as cited nor as confirmed-uncited.
+3. **Given** papers that nobody has cited yet, **When** the graph is displayed, **Then** they are visually distinguished from other nodes.
 
 ---
 
@@ -93,7 +98,6 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - The user must be informed when a search returns no results.
 - If a hovered paper has no summary (feature 004 off or fell back to abstract), the panel shows the abstract/citation info it does have rather than an empty panel.
 - Read/unread is a display state; where it is persisted (an extension field on the record per 001 FR-016) must keep the JSON/Markdown pairing consistent through 003.
-- A paper whose citation status is unconfirmed (`citationsKnown = false`, e.g. enrichment failed or hasn't happened yet) is never shown with the confirmed-uncited styling, even though its stored count reads 0 — it gets its own neutral/unknown treatment instead, so an unenriched paper is never mistaken for a genuinely uncited one.
 
 ## Requirements *(mandatory)*
 
@@ -103,7 +107,7 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-002**: The user MUST be able to rotate, zoom, and pan to explore the graph, and exploration MUST remain responsive even with a large number of papers.
 - **FR-003**: Directional citation connections MUST be drawn between papers as provided by the graph data (006).
 - **FR-004**: Hovering a node MUST bring up a panel containing that paper's summary and citation information (falling back to the abstract when no summary exists).
-- **FR-005**: Papers confirmed as uncited (`citationsKnown === true` and `citationCount === 0`, per 001/002 FR-018 and the `citationsKnown` field 006 carries onto each node — never `citationCount === 0` alone) MUST be visually distinguished from other nodes. A paper whose citation status is not yet confirmed (`citationsKnown === false`) MUST NOT be shown with the uncited styling — it is visually distinct from both the cited and confirmed-uncited states.
+- **FR-005**: Papers that nobody has cited yet MUST be visually distinguished from other nodes.
 - **FR-006**: Clicking a node MUST open that paper's Markdown note.
 - **FR-007**: Right-clicking a node MUST offer exactly six actions: open note, refresh this paper, copy source link, copy title, toggle read/unread, remove from graph. Each MUST produce an immediately observable result.
 - **FR-008**: "Refresh this paper" MUST run through the manual-refresh feature (005); "remove from graph", when it deletes, MUST run through the coordinated record+note delete in 003.
@@ -112,6 +116,8 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-011**: When there are no papers to show, a message MUST be shown instead of a blank screen.
 - **FR-012**: "Remove from graph" MUST make clear whether it hides the node or deletes the underlying data; the deleting variant MUST be separately labeled and confirmed before running, because deletion is irreversible.
 - **FR-013**: This feature MUST consume graph data from 006 and MUST NOT parse vault files or contact external providers directly.
+- **FR-014**: Node x,y placement MUST use the content-similarity projection provided by 006 (FR-008); the plugin MUST NOT re-derive positions from vault files itself (consistent with FR-013). Publication year remains fixed to the separate axis (FR-001). When a projection refit (006 FR-010) changes positions, the view SHOULD animate the transition rather than snapping.
+- **FR-015**: The plugin is desktop-only (`manifest.json` `isDesktopOnly: true`). The 3D rendering, local embedding, and projection MAY use Node/Electron/native capabilities accordingly, consistent with the constitution's platform-compliance rule for an intentional desktop-only plugin.
 
 ### Key Entities
 
@@ -129,26 +135,26 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **SC-004**: Each right-click action produces an immediately observable result (note opens, clipboard copied, read state toggles, node disappears, refresh reflected).
 - **SC-005**: With zero papers, a message is shown rather than a blank screen.
 - **SC-006**: Any deleting "remove" action is confirmed before it irreversibly deletes the record+note pairing.
-- **SC-007**: A node is shown with the uncited styling if and only if its `citationsKnown` flag is `true` and its citation count is 0; a node with `citationsKnown = false` never receives that styling regardless of its stored count.
+- **SC-007**: Node x,y reflects content similarity (similar papers cluster), while every year still maps to a distinct plane on the fixed axis (SC-001 preserved).
 
 ## Assumptions
 
 - Graph data (nodes + connections) is supplied by 006; this feature does not read stored files itself.
 - Read/unread state is stored as an extension field on the paper record (001 FR-016) and kept consistent across the JSON/Markdown pairing by 003.
-- The uncited visual distinction reads the record's `citationsKnown` flag together with its citation count (001/002 FR-018), supplied on each node by graph conversion (006 FR-002a) specifically for this purpose — a node is shown as uncited only when `citationsKnown === true` and `citationCount === 0`, never from the count alone. Collection (002) attempting enrichment before promotion when helpful (002 FR-016) raises the odds a paper's status is already confirmed by display time, but does not guarantee it: enrichment itself can fail (unreachable provider, or no record yet for that paper — 002 FR-018), in which case the paper is still promoted immediately with `citationsKnown = false`. Such an unenriched paper (count 0, `citationsKnown = false`) MUST NOT be shown as uncited — it is visually distinct from both "uncited" and "cited" (e.g. a neutral/unknown styling) until a later enrichment or manual refresh (005) sets `citationsKnown = true`.
+- The uncited visual distinction reads the record's citation count (0 = uncited). Its accuracy depends on collection (002) having enriched the paper's citation data before promotion (002 FR-016); an un-enriched paper reads 0 and is shown as uncited until a manual refresh (005) updates it.
 - The 3D rendering technology is an implementation choice constrained by the project's mobile-compatibility and platform-compliance rules; this spec fixes behavior, not the rendering library.
 
 ## Open Questions
 
 *Deferred to `/speckit.clarify` and `/speckit.plan` — recorded so refinement and planning address them. None are settled yet.*
 
-- **OQ-1 — Intra-year-plane layout.** How are nodes positioned on the two non-year axes — force-directed, citation-driven, or a deterministic layout? (001's `layout` setting is a placeholder.)
+- **OQ-1 — Intra-year-plane layout. [RESOLVED 2026-07-07]** x,y = content-similarity projection from 006 (default PCA with sign-canonicalization, optional UMAP cluster mode). 001's `layout` setting maps to this projection-mode choice.
 - **OQ-2 — `colorScheme` meaning.** What does the graph-display color scheme (e.g. `byPublicationYear`) actually encode?
 - **OQ-3 — "Most recent" definition** for the uncited highlight — same question as 004 OQ-1.
 - **OQ-4 — Hide persistence.** When "remove from graph" only hides a node, is that hidden state persisted across sessions or session-only?
-- **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it.
+- **OQ-5 — Concrete scale/responsiveness targets** — what counts as a "large number of papers", and the responsiveness budget under it. Now also covers projection cost, mitigated by the cached-basis / out-of-sample policy (006 FR-010).
 - **OQ-6 — Read/unread default and storage shape** — the default state and the extension-field representation (coordinate with 003).
-- **OQ-7 — Mobile viability and `isDesktopOnly`.** The 3D rendering/interaction choice (OQ-1) decides whether the plugin can run on Obsidian mobile. `manifest.json` currently sets `isDesktopOnly: false` — the project default, per the constitution's mobile-compatibility principle, and consistent with the rest of the plugin (network via `requestUrl`, vault I/O) being mobile-capable. If the chosen 3D approach depends on Node/Electron APIs, or is unusable at acceptable performance on touch/mobile, then `isDesktopOnly` must flip to `true`. That is a deliberate decision to drop mobile support — to be recorded here and in the constitution's platform-compliance/mobile notes, not defaulted. Decide during 007 planning: keep the rendering mobile-compatible, or commit to desktop-only and set the manifest flag accordingly.
+- **OQ-7 — Mobile viability and `isDesktopOnly`. [RESOLVED 2026-07-07 → desktop-only]** The 3D rendering/interaction choice (OQ-1) decides whether the plugin can run on Obsidian mobile. `manifest.json` currently sets `isDesktopOnly: false` — the project default, per the constitution's mobile-compatibility principle, and consistent with the rest of the plugin (network via `requestUrl`, vault I/O) being mobile-capable. If the chosen 3D approach depends on Node/Electron APIs, or is unusable at acceptable performance on touch/mobile, then `isDesktopOnly` must flip to `true`. That is a deliberate decision to drop mobile support — to be recorded here and in the constitution's platform-compliance/mobile notes, not defaulted. **Decision (2026-07-07):** committed to **desktop-only** — `manifest.json` `isDesktopOnly` is set to `true` — to allow native local content-embedding, 3D rendering, and in-memory projection; recorded here and in the constitution's platform-compliance / mobile notes.
 
 ## Out of Scope
 

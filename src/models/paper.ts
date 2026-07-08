@@ -8,6 +8,13 @@ export type SourceProvider = (typeof SOURCE_PROVIDERS)[number];
 
 export type PaperSourceId = `${SourceProvider}:${string}`;
 
+// Recognized content-embedding provenance values, derived from this array the
+// same way SourceProvider is derived from SOURCE_PROVIDERS, so the runtime check
+// in isValidPaper() and the compile-time union never drift out of sync (FR-020).
+const EMBEDDING_SOURCES = ['local', 'llm'] as const;
+
+export type EmbeddingSource = (typeof EMBEDDING_SOURCES)[number];
+
 export interface PaperCandidate {
 	title: string;
 	publicationYear: number | undefined;
@@ -34,6 +41,15 @@ export interface PaperCandidate {
 	// the shape is fixed here so they share one definition. toPaper() defaults it
 	// to [] at promotion.
 	references: PaperSourceId[] | undefined;
+	// Content embedding: an L2-normalized numeric vector over title + abstract
+	// (001 FR-019), plus its model/provenance metadata (FR-020). `undefined` on a
+	// candidate means "not computed yet" — the baseline vector is produced locally
+	// by collection (260702-002) at promotion, optionally upgraded to an LLM vector
+	// by 260702-004. Never a hold-back trigger (FR-021): toPaper() defaults an
+	// undefined embedding to null (pending) rather than holding the paper back.
+	embedding: number[] | undefined;
+	embeddingModel: string | undefined;
+	embeddingSource: EmbeddingSource | undefined;
 }
 
 export interface Paper {
@@ -62,6 +78,14 @@ export interface Paper {
 	// See PaperCandidate.references above — same field, carried onto the validated
 	// Paper shape so every downstream feature reads citation edges from one place.
 	references: PaperSourceId[];
+	// See PaperCandidate above. On a valid Paper these keys are always present;
+	// `null` means "pending" (not yet embedded) — still valid, never a hold-back
+	// trigger (001 FR-019/FR-021). Only papers sharing one embeddingModel space may
+	// be projected together by the graph feature (260702-006), so switching provider
+	// requires re-embedding the corpus.
+	embedding: number[] | null;
+	embeddingModel: string | null;
+	embeddingSource: EmbeddingSource | null;
 }
 
 export function isPaperSourceId(value: string): value is PaperSourceId {
@@ -123,6 +147,11 @@ export function toPaper(candidate: PaperCandidate): Paper | undefined {
 		citationCount: candidate.citationCount ?? 0,
 		citationsKnown: candidate.citationCount !== undefined,
 		references: candidate.references ?? [],
+		// An unknown embedding is defaulted to null (pending), not held back
+		// (FR-021) — the baseline vector is filled by 260702-002/004.
+		embedding: candidate.embedding ?? null,
+		embeddingModel: candidate.embeddingModel ?? null,
+		embeddingSource: candidate.embeddingSource ?? null,
 	};
 }
 
@@ -150,6 +179,20 @@ export function isValidPaper(data: unknown): data is Paper {
 		Array.isArray(candidate.references) &&
 		candidate.references.every(
 			(ref) => typeof ref === 'string' && isPaperSourceId(ref),
-		)
+		) &&
+		// Content embedding (FR-019/FR-020): the keys must be present, but a pending
+		// (null) embedding is valid — it is never a hold-back trigger (FR-021).
+		(candidate.embedding === null ||
+			(Array.isArray(candidate.embedding) &&
+				candidate.embedding.every(
+					(n) => typeof n === 'number' && Number.isFinite(n),
+				))) &&
+		(candidate.embeddingModel === null ||
+			typeof candidate.embeddingModel === 'string') &&
+		(candidate.embeddingSource === null ||
+			(typeof candidate.embeddingSource === 'string' &&
+				(EMBEDDING_SOURCES as readonly string[]).includes(
+					candidate.embeddingSource,
+				)))
 	);
 }
