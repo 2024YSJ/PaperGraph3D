@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repo (`PaperGraph3D`) is early in build-out. The plugin entry points are still the unmodified Obsidian sample template — `manifest.json` still declares `id: "sample-plugin"`, and `src/main.ts` / `src/settings.ts` are the stock sample code (ribbon icon, sample modal, one settings field), not yet wired to any real feature. The first feature's output does exist: `src/models/{subscription,paper,settings}.ts` hold the core data structures (types plus runtime validators) from the `001-core-data-models` spec, but nothing imports them yet. Treat the sections below as the scaffolding/conventions the real plugin is being built on top of.
+This repo (`PaperGraph3D`) is early in build-out. `src/main.ts` / `src/settings.ts` are still the stock Obsidian sample code (ribbon icon, sample modal, one settings field), not yet wired to any real feature — lifecycle wiring is owned by the future 008 assembly feature. `manifest.json` declares `id: "paper-graph-3d"` and, per the content-similarity-layout decision, `isDesktopOnly: true` (the project is deliberately desktop-only; see the constitution). Feature 001's output exists: `src/models/{subscription,paper,settings}.ts` hold the core data structures (types plus runtime validators, including the core `Paper.embedding`/`embeddingModel`/`embeddingSource` fields), but nothing imports them yet. Feature 003 (paper-note-persistence) is fully specified, clarified, and planned with design artifacts under `specs/003-paper-note-persistence/`, but not yet implemented (`src/persistence/` is its planned footprint). Treat the sections below as the scaffolding/conventions the real plugin is being built on top of.
 
 ## Commands
 
@@ -51,12 +51,12 @@ This repo uses [GitHub Spec Kit](https://github.com/github/spec-kit) for spec-dr
 - **agent-context** — keeps the managed block below in sync with the active feature's plan path after `/speckit.specify` and `/speckit.plan`. Configured to manage this file (`.specify/extensions/agent-context/agent-context-config.yml` → `context_file: "CLAUDE.md"`). Don't hand-edit between the markers; it's regenerated.
 - **bug** — `/speckit.bug.assess`, `/speckit.bug.fix`, `/speckit.bug.test` for triaging bug reports against the codebase, with per-bug reports under `.specify/bugs/<slug>/`.
 
-`.specify/memory/constitution.md` is a ratified project constitution (v1.0.0), not the bare template — it defines six binding principles (Obsidian Platform Compliance, Lifecycle-Safe Resource Management, Manifest Identity Stability, Transparent Use of Sensitive APIs, Bilingual UX/English-only code, Open-Source Code Quality & Extensibility) plus Additional Constraints and a Development Workflow section. `/speckit.plan`'s Constitution Check gate reads this file directly; treat it as binding and only amend it through its own Governance rules (version bump + Sync Impact Report), not by hand-editing content in place.
+`.specify/memory/constitution.md` is a ratified project constitution (v1.1.0 — amended 2026-07-08 for the desktop-only platform decision and optional-LLM-embedding disclosure), not the bare template — it defines six binding principles (Obsidian Platform Compliance, Lifecycle-Safe Resource Management, Manifest Identity Stability, Transparent Use of Sensitive APIs, Bilingual UX/English-only code, Open-Source Code Quality & Extensibility) plus Additional Constraints and a Development Workflow section. `/speckit.plan`'s Constitution Check gate reads this file directly; treat it as binding and only amend it through its own Governance rules (version bump + Sync Impact Report), not by hand-editing content in place.
 
-One feature spec exists so far: `specs/001-core-data-models/` (core data structures — spec, plan, tasks, and design artifacts, all implemented under `src/models/`).
+Feature specs under `specs/`: `001-core-data-models/` (spec, plan, tasks, design artifacts — implemented under `src/models/`) and `003-paper-note-persistence/` (spec + plan + design artifacts complete; implementation pending under `src/persistence/`). Additional feature drafts (002 collection, 004 summarization, 006 graph-data conversion, 007 3D visualization) live under `specs-input/`; the whole set now threads a content-similarity x,y graph layout (year fixed to the z axis) driven by the core `Paper.embedding`.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-core-data-models/plan.md
+at specs/003-paper-note-persistence/plan.md
 <!-- SPECKIT END -->
