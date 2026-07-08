@@ -92,7 +92,7 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 - [ ] T012 [P] [US3] Implement tombstone + reconciliation in `src/persistence/reconcile.ts`: write/detect/complete the per-paper `<stem>.pg3d-del` tombstone; reconcile a record-without-note (rebuild note from record), a note-without-record-and-no-tombstone (report, never delete), and resume a tombstoned delete; explicitly ignore non-paper files (projection-basis cache, tombstones) (FR-013/FR-021/FR-023; can develop alongside store tasks — different file)
 - [ ] T013 [US3] Implement `delete()` in `src/persistence/store.ts`: tombstoned two-phase (tombstone → remove `.md` → remove `.json` → remove tombstone), remove the index entry, confined to the folder (FR-012/FR-021; depends on T008, T012)
-- [ ] T014 [US3] Implement `load()` and `all()` in `src/persistence/store.ts`: scan the folder, build the metadata-only index (no embedding vectors) within the SC-006 budget, resume tombstoned deletes and reconcile via T012, and async-enumerate all records back into `Paper` (hydrating embeddings on demand) for 006 (FR-013/FR-015c/FR-017, SC-005/SC-006; depends on T006, T010, T012)
+- [ ] T014 [US3] Implement `load()` and `all()` in `src/persistence/store.ts`: scan the folder and **pair each `.json`↔`.md` by content-level `sourceId`/`pg3d_sourceId` (rename-safe, never by filename — FR-009)**, build the metadata-only index (no embedding vectors) within the SC-006 budget, resume tombstoned deletes and reconcile via T012, and async-enumerate all records back into `Paper` (hydrating embeddings on demand) for 006 (FR-009/FR-013/FR-015c/FR-017, SC-005/SC-006; depends on T006, T010, T012)
 - [ ] T015 [US3] Enforce the folder boundary and folder lifecycle in `src/persistence/store.ts`/`filestore.ts`: never act outside the base folder, inform the user and avoid half-written pairings when the folder is missing/inaccessible, and on a storage-folder change leave old pairings in place and rebuild the index from the new folder (FR-006/FR-011/FR-018, SC-004; depends on T008)
 
 **Checkpoint**: All three P1 stories are independently functional; the pairing invariant, boundary invariant, and delete recovery all hold.
@@ -105,7 +105,7 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 - [ ] T016 [P] Run `npm run build` (`tsc --noEmit` + esbuild) and confirm it passes with all `src/persistence/*.ts` present (constitution Development Workflow gate)
 - [ ] T017 [P] Run `npm run lint` and confirm `src/persistence/*.ts` introduces zero new lint errors versus the baseline (T001)
-- [ ] T018 Execute `quickstart.md` end-to-end: create `scratch/verify-persistence.ts` driving `PaperStore` over `InMemoryFileStore`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS`, then `rm -rf scratch/` (depends on T009, T011, T013, T014)
+- [ ] T018 Execute `quickstart.md` end-to-end: create `scratch/verify-persistence.ts` driving `PaperStore` over `InMemoryFileStore`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS` — **including an SC-006 load-timing smoke (build the index over ~1,000 synthetic records and assert it completes within the ≤2 s budget)** — then `rm -rf scratch/` (depends on T009, T011, T013, T014)
 - [ ] T019 Manual in-vault smoke of the `ObsidianFileStore` adapter (T007): in a scratch vault, create/update/delete a paper and confirm the `.json`/`.md` pair appears, a hand-typed body survives an update, and nothing outside the folder changes
 
 ---
@@ -174,4 +174,6 @@ After Foundational, one developer can carry the `store.ts` write-path chain (US1
 - No test tasks — see the Tests note at the top; verification is `tsc`/`eslint` + the `quickstart.md` walkthrough (T018) over the `InMemoryFileStore` fake, plus the adapter smoke (T019).
 - Every task traces to FR-/SC- numbers from `spec.md` and the interfaces in `contracts/persistence-api.md`; consult `data-model.md` and `research.md` for exact shapes/decisions before implementing.
 - Wiring the store into the plugin (`onload` load, settings folder, read/unread toggle) is 008's job, not here (spec Out of Scope).
+- User-facing `Notice`s (orphan report in T012, folder inaccessible/moved in T015) MUST follow the bilingual/plain-English policy (constitution Principle V).
+- FR-017 (no live watcher) and FR-019 (delegate sync-conflicts, no own merge) are non-action constraints satisfied by the reconciliation design (T012/T014) + per-paper sidecars — no dedicated task.
 - Commit after each task or logical group; stop at any checkpoint to validate a story independently.
