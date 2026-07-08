@@ -61,6 +61,11 @@ export function parseArxivEntry(entry: Element): PaperCandidate | undefined {
 		abstract,
 		sourceId: `arxiv:${baseId}`,
 		references: undefined,
+		// arXiv provides no content embedding; left undefined ("not computed yet")
+		// so a later embedding pass (006 graph-conversion) can populate it.
+		embedding: undefined,
+		embeddingModel: undefined,
+		embeddingSource: undefined,
 	};
 }
 
