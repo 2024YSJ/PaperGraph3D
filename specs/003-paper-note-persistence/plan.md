@@ -77,7 +77,8 @@ src/
     ├── index.ts              # in-memory Record Index (lightweight entries; no embedding vectors)
     ├── reconcile.ts          # orphan/tombstone reconciliation, JSON-authoritative repair
     ├── store.ts              # PaperStore: load/upsert/get/has/all/delete + per-paper write serialization
-    └── filestore.ts          # FileStore port + ObsidianFileStore adapter + InMemoryFileStore fake
+    ├── filestore.ts          # FileStore port + InMemoryFileStore fake (Obsidian-free)
+    └── filestore-obsidian.ts # ObsidianFileStore adapter (Vault API) — the only Obsidian-touching module
 ```
 
 **Structure Decision**: Single project (one Obsidian plugin bundle; no frontend/backend split). All new code lives under a new `src/persistence/` directory, one responsibility per file per constitution Principle VI. The pure core (record/note/filename/index/reconcile/store) depends only on a small `FileStore` port; the production `ObsidianFileStore` adapter is the sole holder of Obsidian I/O side effects, and an `InMemoryFileStore` fake makes the whole core runnable offline for `quickstart.md`. Nothing in `src/main.ts`/`src/settings.ts` changes — wiring the store into the plugin lifecycle (load-time index build, settings-driven folder) is 008's job (spec Out of Scope).

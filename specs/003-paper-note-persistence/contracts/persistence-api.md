@@ -66,8 +66,9 @@ export interface FileStore {
   list(): Promise<string[]>;
 }
 
-export function createObsidianFileStore(app: App, baseFolder: string): FileStore; // production
 export class InMemoryFileStore implements FileStore { /* verification fake */ }
+// In src/persistence/filestore-obsidian.ts (the only Obsidian-touching module):
+export function createObsidianFileStore(app: App, baseFolder: string): FileStore; // production
 ```
 
 **Behavior guarantees**:

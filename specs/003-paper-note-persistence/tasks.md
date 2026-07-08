@@ -29,7 +29,7 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 **Purpose**: Confirm a clean baseline before adding new files.
 
-- [ ] T001 Create the `src/persistence/` directory and confirm `npm run build` and `npm run lint` both still pass on the unmodified baseline, so any later failure is known to come from this feature's new code
+- [X] T001 Create the `src/persistence/` directory and confirm `npm run build` and `npm run lint` both still pass on the unmodified baseline, so any later failure is known to come from this feature's new code
 
 **Checkpoint**: Baseline confirmed clean — safe to add the persistence modules.
 
@@ -41,12 +41,12 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 **⚠️ CRITICAL**: No user-story work can begin until this phase is complete.
 
-- [ ] T002 [P] Define the `FileStore` port (`read`/`write`/`delete`/`exists`/`list`) and the `InMemoryFileStore` verification fake in `src/persistence/filestore.ts` (per contracts/persistence-api.md; all paths resolved inside the base folder — FR-006)
-- [ ] T003 [P] Implement `fileStem(sourceId, taken)` injective sanitization (provider prefix + sanitized local part, deterministic disambiguator on clash) in `src/persistence/filename.ts` (FR-007)
-- [ ] T004 [P] Define `PaperRecord` (wrapped superset) + `ReadState`, and implement `wrap()`/`unwrap()`/`migrate()` with the field-scoped merge — preserving `summary`/`futureDirections`/`readState`/`createdAt` and the embedding preserve-unless-supplied rule, plus pending-embedding normalization + `schemaVersion` bump — in `src/persistence/record.ts` (FR-004/FR-016/FR-020/FR-022, SC-007; Clarifications 2026-07-08)
-- [ ] T005 [P] Implement `renderNote()`/`parseNote()` — three regions (YAML frontmatter mirrored subset via Obsidian `stringifyYaml`/`parseYaml`, `<!-- pg3d:begin/end -->` managed body block, preserved user body); the embedding is never written to any region — in `src/persistence/note.ts` (FR-002/FR-005/FR-022, SC-008; OQ-4: authors as block sequence, references excluded)
-- [ ] T006 [P] Implement the in-memory Record Index (`IndexEntry` lightweight metadata only — no embedding vectors/references/prose; `build`, `has`, `upsertEntry`, `removeEntry`, `entryFromRecord`) in `src/persistence/index.ts` (FR-015, SC-006; Clarification 2026-07-08)
-- [ ] T007 Implement the production `ObsidianFileStore` adapter over the Obsidian `Vault` API (folder-scoped read/write/delete/exists/list; `null` on absent) in `src/persistence/filestore.ts` (depends on T002; same file, so sequential — this is the only Obsidian-touching code)
+- [X] T002 [P] Define the `FileStore` port (`read`/`write`/`delete`/`exists`/`list`) and the `InMemoryFileStore` verification fake in `src/persistence/filestore.ts` (per contracts/persistence-api.md; all paths resolved inside the base folder — FR-006)
+- [X] T003 [P] Implement `fileStem(sourceId, taken)` injective sanitization (provider prefix + sanitized local part, deterministic disambiguator on clash) in `src/persistence/filename.ts` (FR-007)
+- [X] T004 [P] Define `PaperRecord` (wrapped superset) + `ReadState`, and implement `wrap()`/`unwrap()`/`migrate()` with the field-scoped merge — preserving `summary`/`futureDirections`/`readState`/`createdAt` and the embedding preserve-unless-supplied rule, plus pending-embedding normalization + `schemaVersion` bump — in `src/persistence/record.ts` (FR-004/FR-016/FR-020/FR-022, SC-007; Clarifications 2026-07-08)
+- [X] T005 [P] Implement `renderNote()`/`parseNote()` — three regions (YAML frontmatter mirrored subset via a minimal Obsidian-free serializer for the fixed schema, `<!-- pg3d:begin/end -->` managed body block, preserved user body); the embedding is never written to any region — in `src/persistence/note.ts` (FR-002/FR-005/FR-022, SC-008; OQ-4: authors as block sequence, references excluded)
+- [X] T006 [P] Implement the in-memory Record Index (`IndexEntry` lightweight metadata only — no embedding vectors/references/prose; `build`, `has`, `upsertEntry`, `removeEntry`, `entryFromRecord`) in `src/persistence/index.ts` (FR-015, SC-006; Clarification 2026-07-08)
+- [X] T007 Implement the production `ObsidianFileStore` adapter over the Obsidian `Vault` API (folder-scoped read/write/delete/exists/list; `null` on absent) in `src/persistence/filestore-obsidian.ts` (depends on T002; kept in its own file so it is the only Obsidian-touching code and the core stays offline-testable)
 
 **Checkpoint**: Building blocks compile and are unit-exercisable via the fake — user-story store paths can now be assembled.
 
@@ -60,9 +60,9 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Create the `PaperStore` class skeleton — constructor(`FileStore`, base folder), the `PersistInput` input type, and per-`sourceId` write serialization (async lock/promise-chain map, FR-014) — in `src/persistence/store.ts` (depends on T002–T006)
-- [ ] T009 [US1] Implement `upsert()` create path in `src/persistence/store.ts`: coordinated create writing the `.json` durably before the `.md`, updating the index, mirroring only the FR-002 subset into the note and never the embedding; roll back to "neither file" on a detected write failure (FR-001/FR-002/FR-003/FR-011/FR-021 create-ordering, SC-001/SC-008; depends on T008)
-- [ ] T010 [US1] Implement `has(sourceId)` (index-served existence check) and `get(sourceId)` (single read-back reading the `.json` on demand into a canonical `Paper`, embedding vector included) in `src/persistence/store.ts` (FR-015a/b; depends on T008, T009)
+- [X] T008 [US1] Create the `PaperStore` class skeleton — constructor(`FileStore`, base folder), the `PersistInput` input type, and per-`sourceId` write serialization (async lock/promise-chain map, FR-014) — in `src/persistence/store.ts` (depends on T002–T006)
+- [X] T009 [US1] Implement `upsert()` create path in `src/persistence/store.ts`: coordinated create writing the `.json` durably before the `.md`, updating the index, mirroring only the FR-002 subset into the note and never the embedding; roll back to "neither file" on a detected write failure (FR-001/FR-002/FR-003/FR-011/FR-021 create-ordering, SC-001/SC-008; depends on T008)
+- [X] T010 [US1] Implement `has(sourceId)` (index-served existence check) and `get(sourceId)` (single read-back reading the `.json` on demand into a canonical `Paper`, embedding vector included) in `src/persistence/store.ts` (FR-015a/b; depends on T008, T009)
 
 **Checkpoint**: New papers persist as consistent pairs and are read-back-able — 002 dedup (`has`) and 005 single read (`get`) are usable. MVP reached.
 
@@ -76,7 +76,7 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Implement `upsert()` update path in `src/persistence/store.ts`: detect the existing pairing via `has()`, read the previous record + note, field-scoped-merge via `record.wrap(prev)`, rebuild only the managed region while re-appending the parsed user body verbatim, and never create a duplicate — so cross-feature wrapper fields and a stored non-null embedding are preserved and the user body is untouched (FR-004/FR-005/FR-008/FR-010, SC-002/SC-003/SC-007; depends on T009, T010)
+- [X] T011 [US2] Implement `upsert()` update path in `src/persistence/store.ts`: detect the existing pairing via `has()`, read the previous record + note, field-scoped-merge via `record.wrap(prev)`, rebuild only the managed region while re-appending the parsed user body verbatim, and never create a duplicate — so cross-feature wrapper fields and a stored non-null embedding are preserved and the user body is untouched (FR-004/FR-005/FR-008/FR-010, SC-002/SC-003/SC-007; depends on T009, T010)
 
 **Checkpoint**: Updates from collection (002) and refresh (005) are safe — user content and enriched fields never clobbered.
 
@@ -90,10 +90,10 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 ### Implementation for User Story 3
 
-- [ ] T012 [P] [US3] Implement tombstone + reconciliation in `src/persistence/reconcile.ts`: write/detect/complete the per-paper `<stem>.pg3d-del` tombstone; reconcile a record-without-note (rebuild note from record), a note-without-record-and-no-tombstone (report, never delete), and resume a tombstoned delete; explicitly ignore non-paper files (projection-basis cache, tombstones) (FR-013/FR-021/FR-023; can develop alongside store tasks — different file)
-- [ ] T013 [US3] Implement `delete()` in `src/persistence/store.ts`: tombstoned two-phase (tombstone → remove `.md` → remove `.json` → remove tombstone), remove the index entry, confined to the folder (FR-012/FR-021; depends on T008, T012)
-- [ ] T014 [US3] Implement `load()` and `all()` in `src/persistence/store.ts`: scan the folder and **pair each `.json`↔`.md` by content-level `sourceId`/`pg3d_sourceId` (rename-safe, never by filename — FR-009)**, build the metadata-only index (no embedding vectors) within the SC-006 budget, resume tombstoned deletes and reconcile via T012, and async-enumerate all records back into `Paper` (hydrating embeddings on demand) for 006 (FR-009/FR-013/FR-015c/FR-017, SC-005/SC-006; depends on T006, T010, T012)
-- [ ] T015 [US3] Enforce the folder boundary and folder lifecycle in `src/persistence/store.ts`/`filestore.ts`: never act outside the base folder, inform the user and avoid half-written pairings when the folder is missing/inaccessible, and on a storage-folder change leave old pairings in place and rebuild the index from the new folder (FR-006/FR-011/FR-018, SC-004; depends on T008)
+- [X] T012 [P] [US3] Implement tombstone + reconciliation in `src/persistence/reconcile.ts`: write/detect/complete the per-paper `<stem>.pg3d-del` tombstone; reconcile a record-without-note (rebuild note from record), a note-without-record-and-no-tombstone (report, never delete), and resume a tombstoned delete; explicitly ignore non-paper files (projection-basis cache, tombstones) (FR-013/FR-021/FR-023; can develop alongside store tasks — different file)
+- [X] T013 [US3] Implement `delete()` in `src/persistence/store.ts`: tombstoned two-phase (tombstone → remove `.md` → remove `.json` → remove tombstone), remove the index entry, confined to the folder (FR-012/FR-021; depends on T008, T012)
+- [X] T014 [US3] Implement `load()` and `all()` in `src/persistence/store.ts`: scan the folder and **pair each `.json`↔`.md` by content-level `sourceId`/`pg3d_sourceId` (rename-safe, never by filename — FR-009)**, build the metadata-only index (no embedding vectors) within the SC-006 budget, resume tombstoned deletes and reconcile via T012, and async-enumerate all records back into `Paper` (hydrating embeddings on demand) for 006 (FR-009/FR-013/FR-015c/FR-017, SC-005/SC-006; depends on T006, T010, T012)
+- [X] T015 [US3] Enforce the folder boundary and folder lifecycle in `src/persistence/store.ts`/`filestore.ts`: never act outside the base folder, inform the user and avoid half-written pairings when the folder is missing/inaccessible, and on a storage-folder change leave old pairings in place and rebuild the index from the new folder (FR-006/FR-011/FR-018, SC-004; depends on T008)
 
 **Checkpoint**: All three P1 stories are independently functional; the pairing invariant, boundary invariant, and delete recovery all hold.
 
@@ -103,9 +103,9 @@ Single project (one Obsidian plugin bundle). All new code lives under `src/persi
 
 **Purpose**: Repo-wide gates and the manual verification pass across the whole feature.
 
-- [ ] T016 [P] Run `npm run build` (`tsc --noEmit` + esbuild) and confirm it passes with all `src/persistence/*.ts` present (constitution Development Workflow gate)
-- [ ] T017 [P] Run `npm run lint` and confirm `src/persistence/*.ts` introduces zero new lint errors versus the baseline (T001)
-- [ ] T018 Execute `quickstart.md` end-to-end: create `scratch/verify-persistence.ts` driving `PaperStore` over `InMemoryFileStore`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS` — **including an SC-006 load-timing smoke (build the index over ~1,000 synthetic records and assert it completes within the ≤2 s budget)** — then `rm -rf scratch/` (depends on T009, T011, T013, T014)
+- [X] T016 [P] Run `npm run build` (`tsc --noEmit` + esbuild) and confirm it passes with all `src/persistence/*.ts` present (constitution Development Workflow gate)
+- [X] T017 [P] Run `npm run lint` and confirm `src/persistence/*.ts` introduces zero new lint errors versus the baseline (T001)
+- [X] T018 Execute `quickstart.md` end-to-end: create `scratch/verify-persistence.ts` driving `PaperStore` over `InMemoryFileStore`, run it via the documented `esbuild`+`node` steps, confirm every scenario prints `PASS` — **including an SC-006 load-timing smoke (build the index over ~1,000 synthetic records and assert it completes within the ≤2 s budget)** — then `rm -rf scratch/` (depends on T009, T011, T013, T014)
 - [ ] T019 Manual in-vault smoke of the `ObsidianFileStore` adapter (T007): in a scratch vault, create/update/delete a paper and confirm the `.json`/`.md` pair appears, a hand-typed body survives an update, and nothing outside the folder changes
 
 ---
