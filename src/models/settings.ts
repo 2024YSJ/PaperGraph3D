@@ -3,6 +3,16 @@ export interface GraphDisplayOptions {
 	colorScheme: string;
 }
 
+// The explicit single embedding-provider selector (001 FR-022): the corpus's
+// canonical embedding space is exactly one of these at a time. 'bundled' is the
+// always-available offline default; 'local-transformer' runs a user-supplied
+// on-device transformer given by `localEmbeddingModel` (002 FR-046); 'llm' uses a
+// configured LLM API (004). Derived from this array so the compile-time union and
+// the runtime check in isValidPluginSettings() never drift.
+export const EMBEDDING_PROVIDERS = ['bundled', 'local-transformer', 'llm'] as const;
+
+export type EmbeddingProvider = (typeof EMBEDDING_PROVIDERS)[number];
+
 export interface PluginSettings {
 	storageLocation: string;
 	summarizationEnabled: boolean;
@@ -15,6 +25,15 @@ export interface PluginSettings {
 	// works without it against Semantic Scholar's shared unauthenticated pool; a key
 	// only grants a dedicated rate limit.
 	semanticScholarApiKey?: string;
+	// Optional embedding-provider selection (001 FR-022, an FR-016-style additive
+	// extension). Absent -> the bundled local baseline is canonical (the default,
+	// fully offline, zero setup). DEFAULT_PLUGIN_SETTINGS is left unchanged since the
+	// field is optional. The bundled baseline is ALWAYS computed as a fallback
+	// regardless of this selection (002 FR-044).
+	embeddingProvider?: EmbeddingProvider;
+	// File path or URL of the user-supplied on-device transformer model, read only
+	// when embeddingProvider === 'local-transformer' (002 FR-046). Absent otherwise.
+	localEmbeddingModel?: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
@@ -53,6 +72,15 @@ export function isValidPluginSettings(data: unknown): data is PluginSettings {
 		isValidGraphDisplayOptions(candidate.graphDisplayOptions) &&
 		// Optional 002 extension: absent, or a string when present (FR-020).
 		(candidate.semanticScholarApiKey === undefined ||
-			typeof candidate.semanticScholarApiKey === 'string')
+			typeof candidate.semanticScholarApiKey === 'string') &&
+		// Optional embedding-provider selection (001 FR-022): absent, or one of the
+		// recognized providers; the local-transformer model path/URL is a string.
+		(candidate.embeddingProvider === undefined ||
+			(typeof candidate.embeddingProvider === 'string' &&
+				(EMBEDDING_PROVIDERS as readonly string[]).includes(
+					candidate.embeddingProvider,
+				))) &&
+		(candidate.localEmbeddingModel === undefined ||
+			typeof candidate.localEmbeddingModel === 'string')
 	);
 }

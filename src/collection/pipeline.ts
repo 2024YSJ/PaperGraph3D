@@ -1,5 +1,6 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
+import { computeBaselineEmbedding } from './embedding';
 import { enrichFromSemanticScholar } from './enrichment';
 import { parseArxivEntry } from './arxivParser';
 import { promote } from './promotion';
@@ -70,6 +71,22 @@ export async function runCollectionPass(
 		const paper = promote(applied);
 		if (paper === undefined) {
 			continue;
+		}
+
+		// FR-044: attach the mandatory bundled baseline embedding at promotion,
+		// before persistence, independent of summarization/LLM (004). It is offline,
+		// deterministic, and never blocks — a failure leaves the embedding pending
+		// (null) rather than holding the paper back (001 FR-021). When a non-bundled
+		// canonical provider is selected the baseline is still stored (pending
+		// upgrade) and re-embedded later; the local-transformer / LLM upgrade at this
+		// seam is added by a later increment (002 FR-045/FR-046).
+		try {
+			const baseline = computeBaselineEmbedding(paper.title, paper.abstract);
+			paper.embedding = baseline.embedding;
+			paper.embeddingModel = baseline.embeddingModel;
+			paper.embeddingSource = baseline.embeddingSource;
+		} catch {
+			// Leave the embedding pending (null); persistence still proceeds.
 		}
 
 		let summary: SummaryResult | undefined;
