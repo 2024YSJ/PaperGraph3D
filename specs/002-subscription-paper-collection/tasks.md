@@ -156,6 +156,25 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 
 ---
 
+## Phase 9: Content embedding — three-provider explicit selector (FR-044/FR-045/FR-046)
+
+**Purpose**: Attach the mandatory content embedding to every promoted paper at the same per-paper seam as summarization, and support the explicit single-selector choice of embedding provider (001 FR-022): the always-on bundled baseline (default), a user-supplied on-device local transformer, or the LLM API (a 004-owned hook). Cross-cutting the pipeline like Polish; not tied to one user story.
+
+**Note**: Threaded into the promoted spec after the feature's original P1–P3 delivery (spec.md § FR-044/FR-045/FR-046, Clarifications 2026-07-09). Implemented in commits `301214a` (bundled baseline) and `d253b72` (local-transformer provider + async upgrade seam).
+
+- [X] T032 [P] Implement the bundled baseline embedding `computeBaselineEmbedding(title, abstract)` in `src/collection/embedding.ts` — a deterministic, offline, dependency-free, L2-normalized hashed term-frequency vector (FNV-1a signed hashing trick, sublinear TF, dim 2048, NO live IDF so a given text's vector never changes as the corpus grows — canonical-space stability, 001 FR-022), returning `embeddingModel = local-hashtf-v1-d2048` and `embeddingSource = 'local'` (FR-044, 001 FR-019)
+- [X] T033 [P] Add the optional `embeddingProvider?: 'bundled' | 'local-transformer' | 'llm'` (via a new `EMBEDDING_PROVIDERS` array / `EmbeddingProvider` type, mirroring the `SOURCE_PROVIDERS` pattern) and `localEmbeddingModel?: string` fields to `PluginSettings` in `src/models/settings.ts`, validated in `isValidPluginSettings`, with `DEFAULT_PLUGIN_SETTINGS` unchanged (absent ⇒ the bundled baseline is canonical) — the explicit single-selector shape, an FR-016-style additive extension like `semanticScholarApiKey` (001 FR-022; FR-045/FR-046)
+- [X] T034 Attach the baseline at promotion, before persistence, in `runCollectionPass` (`src/collection/pipeline.ts`) — computed for every promoted paper independent of summarization/LLM, in a try/catch so a failure leaves the embedding pending (null) rather than holding the paper back (FR-044; 001 FR-021; depends on T011, T032)
+- [X] T035 [P] Implement the user-supplied local-transformer provider `localTransformerEmbedding(title, abstract, modelSpec)` in `src/collection/localTransformer.ts` — loads `@huggingface/transformers` via a LAZY DYNAMIC IMPORT (only when this provider is selected), runs the user's model (a local file path or a URL) with mean-pooling + L2-normalize, caches one pipeline per model spec, and records `embeddingModel = local-transformer:<spec>:d<dim>` so switching to a different model is a provider change that re-embeds; plus the minimal ambient `src/collection/transformers-shim.d.ts` and `@huggingface/transformers` marked external in `esbuild.config.mjs` / declared under `optionalDependencies`, so the heavy onnxruntime/WASM runtime never bloats or breaks the core bundle (FR-046; 001 FR-020/FR-022)
+- [X] T036 Implement the async upgrade dispatcher `upgradeEmbedding(title, abstract, config)` in `src/collection/embeddingUpgrade.ts` (never throws; `bundled`/`llm` are no-ops — the LLM upgrade is a 004-owned hook stubbed until 004 ships — and `local-transformer` runs T035; returns undefined on any failure so the caller keeps the baseline as pending upgrade), thread an optional live `getEmbeddingConfig` getter through `runCollectionPass`/`runSubscriptionCheck`, run the upgrade at the same seam as summarization after the baseline (per paper, read live), and wire `() => ({ provider, localModel })` from `this.settings` in `src/main.ts` (FR-045/FR-046; 002 FR-021 live-read precedent; depends on T033, T034, T035)
+- [X] T037 [P] Confirm `tsc --noEmit`, the production esbuild build (with `@huggingface/transformers` left external), and `eslint .` all stay green with the embedding files present, and verify baseline + dispatcher behavior with stubbed sanity checks (fixed-length/L2-normalized/deterministic vectors, similar > different cosine; dispatcher no-op/graceful-fallback never throws) (constitution Development Workflow gate; depends on T032–T036)
+- [ ] T038 Implement re-embedding of the persisted corpus when the selected embedding provider/model changes (001 FR-022 / FR-045) — targeting the persisted store directly, never rescanning the collection window — so the corpus converges to the single canonical space after a provider switch. **Not yet implemented.** (FR-045; depends on 003's read-back capability + T036)
+- [ ] T039 Resolve and verify local-transformer runtime delivery in a real Obsidian desktop environment (FR-046): either bundle `@huggingface/transformers` with the onnxruntime **WASM** backend forced + ship the `.wasm` asset from the plugin folder, or load the runtime from a URL at runtime (disclosed per constitution Principle IV). Currently the runtime is external/unbundled, so a shipped plugin gracefully falls back to the bundled baseline until this lands. **Not yet implemented.** (FR-046; depends on T035)
+
+**Checkpoint**: Every promoted paper carries a real content embedding (the bundled baseline by default, `null` no longer); the explicit-selector local-transformer upgrade path is wired and type-safe, with corpus re-embedding (T038) and the local-transformer runtime bundling (T039) remaining.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -168,6 +187,7 @@ Single project (this repo is one Obsidian plugin bundle, no frontend/backend spl
 - **User Story 3 (Phase 6)**: Depends on Phase 5 (T015, T016) — catch-up reuses the scheduler's window/tick machinery.
 - **Polish (Phase 7)**: T020 depends on T002 (US1) and US2+US3 (T014, T016, T018); T022–T024 depend on all prior phases being present.
 - **User Story 5 (Phase 8)**: Depends on Phase 4 (T014 pipeline), Phase 5 (T015/T016 scheduler), and Phase 7 (T020 base main.ts wiring). Fully additive — the P1/P2 feature ships without it. US6 (check-now) has no phase of its own; it is satisfied by T016 (see the note above Phase 8).
+- **Content embedding (Phase 9)**: Depends on Phase 4 (T011 promotion) and Phase 5 (T013/T014 pipeline) for the promote→persist seam, and Phase 7 (T020 main.ts wiring) for the settings live-getter. Fully additive and cross-cutting (not a user story). T032–T037 are complete; T038 (corpus re-embedding on provider switch) and T039 (local-transformer runtime bundling verified in Obsidian) remain open.
 
 ### Within Each User Story
 
