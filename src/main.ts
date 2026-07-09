@@ -110,6 +110,13 @@ export default class PaperGraph3DPlugin extends Plugin {
 					// Live getters — read through this.settings at call time (FR-021, Decision 26).
 					() => this.settings.summarizationEnabled,
 					() => this.settings.semanticScholarApiKey,
+					// enrich uses its default (Semantic Scholar batch lookup).
+					undefined,
+					// Live embedding-provider selection (001 FR-022 / 002 FR-045/FR-046).
+					() => ({
+						provider: this.settings.embeddingProvider ?? 'bundled',
+						localModel: this.settings.localEmbeddingModel,
+					}),
 				),
 			onFailure: (subscription, reason) => {
 				new Notice(subscriptionFailureNotice(subscription, reason));

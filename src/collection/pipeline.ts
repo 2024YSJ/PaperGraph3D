@@ -1,6 +1,8 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
+import type { EmbeddingConfig } from './embeddingUpgrade';
 import { computeBaselineEmbedding } from './embedding';
+import { upgradeEmbedding } from './embeddingUpgrade';
 import { enrichFromSemanticScholar } from './enrichment';
 import { parseArxivEntry } from './arxivParser';
 import { promote } from './promotion';
@@ -31,6 +33,7 @@ export async function runCollectionPass(
 	isSummarizationEnabled: () => boolean,
 	getSemanticScholarApiKey: () => string | undefined,
 	enrich: EnrichFn = enrichFromSemanticScholar,
+	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<void> {
 	const state = createCollectionRunState(hooks.alreadyPersisted);
 
@@ -89,6 +92,24 @@ export async function runCollectionPass(
 			// Leave the embedding pending (null); persistence still proceeds.
 		}
 
+		// FR-045: if a non-bundled canonical provider is selected, upgrade the
+		// baseline to it at this seam (read live per paper). An upgrade failure
+		// returns undefined and the baseline is kept as pending upgrade — embedding
+		// never blocks persistence (001 FR-021 / 002 FR-046).
+		const embeddingConfig = getEmbeddingConfig?.();
+		if (embeddingConfig !== undefined && embeddingConfig.provider !== 'bundled') {
+			const upgraded = await upgradeEmbedding(
+				paper.title,
+				paper.abstract,
+				embeddingConfig,
+			);
+			if (upgraded !== undefined) {
+				paper.embedding = upgraded.embedding;
+				paper.embeddingModel = upgraded.embeddingModel;
+				paper.embeddingSource = upgraded.embeddingSource;
+			}
+		}
+
 		let summary: SummaryResult | undefined;
 		if (isSummarizationEnabled() && hooks.summarize !== undefined) {
 			try {
@@ -129,6 +150,7 @@ export async function runSubscriptionCheck(
 	isSummarizationEnabled: () => boolean,
 	getSemanticScholarApiKey: () => string | undefined,
 	enrich?: EnrichFn,
+	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<{ truncated: boolean; coveredThrough: number }> {
 	const { entries, truncated, coveredThrough } = await queryArxiv(subscription, window);
 
@@ -147,6 +169,7 @@ export async function runSubscriptionCheck(
 		isSummarizationEnabled,
 		getSemanticScholarApiKey,
 		enrich,
+		getEmbeddingConfig,
 	);
 
 	return { truncated, coveredThrough };

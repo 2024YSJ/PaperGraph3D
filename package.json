@@ -20,6 +20,9 @@
 	],
 	"author": "AKZIL",
 	"license": "MIT",
+	"optionalDependencies": {
+		"@huggingface/transformers": "^3.0.0"
+	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
 		"@types/node": "^22.15.17",
