@@ -19,6 +19,18 @@ export interface Subscription {
 	checkIntervalHours: CheckIntervalHours;
 	lastCheckedAt: number | null;
 	enabled: boolean;
+	// Backward floor: the oldest instant (epoch ms) this subscription's collection has
+	// covered. First recorded atomically by the store's recordChecked on a subscription's
+	// first successful check (as that check's window.from = registration − 24h); lowered by
+	// a completed backfill. Absent/null on a subscription that has never successfully
+	// checked. Load-bearing for forward collection's FR-041 announcement-lag clamp,
+	// independent of whether backfill is ever used. FR-016-style additive 002 extension.
+	coveredFrom?: number | null;
+	// Present only while a historical backfill (US5, FR-033–040) is active: cursor starts
+	// at targetFrom and advances upward toward coveredFrom (both epoch ms). Absent/null when
+	// no backfill is in progress. FR-016-style additive 002 extension; nothing outside US5
+	// reads or writes it.
+	backfillState?: { targetFrom: number; cursor: number } | null;
 }
 
 function isCheckIntervalHours(value: unknown): value is CheckIntervalHours {
@@ -39,7 +51,32 @@ export function isValidSubscription(data: unknown): data is Subscription {
 		typeof candidate.label === 'string' &&
 		isCheckIntervalHours(candidate.checkIntervalHours) &&
 		(candidate.lastCheckedAt === null || typeof candidate.lastCheckedAt === 'number') &&
-		typeof candidate.enabled === 'boolean'
+		typeof candidate.enabled === 'boolean' &&
+		isValidCoveredFrom(candidate.coveredFrom) &&
+		isValidBackfillState(candidate.backfillState)
+	);
+}
+
+// Optional 002 extensions (FR-041 / FR-033–040): a subscription without either field
+// still validates (both absent by default). When present, coveredFrom must be a finite
+// number or null; backfillState must be null or an object with finite targetFrom/cursor.
+function isValidCoveredFrom(value: unknown): boolean {
+	return value === undefined || value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isValidBackfillState(value: unknown): boolean {
+	if (value === undefined || value === null) {
+		return true;
+	}
+	if (typeof value !== 'object') {
+		return false;
+	}
+	const state = value as Record<string, unknown>;
+	return (
+		typeof state.targetFrom === 'number' &&
+		Number.isFinite(state.targetFrom) &&
+		typeof state.cursor === 'number' &&
+		Number.isFinite(state.cursor)
 	);
 }
 

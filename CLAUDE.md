@@ -58,5 +58,5 @@ Feature specs under `specs/`: `001-core-data-models/` (spec, plan, tasks, design
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/003-paper-note-persistence/plan.md
+at specs/002-subscription-paper-collection/plan.md
 <!-- SPECKIT END -->
