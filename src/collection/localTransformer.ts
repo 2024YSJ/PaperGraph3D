@@ -35,13 +35,21 @@ async function getPipeline(
 	return cachedPipeline;
 }
 
+// The `embeddingModel` prefix for a given model spec (without the trailing
+// dimension). Re-embedding (002 FR-045) uses this to tell — cheaply, without
+// running inference — whether a stored paper is already in this model's canonical
+// space. The trailing ':' disambiguates specs where one is a prefix of another.
+export function localTransformerModelIdPrefix(modelSpec: string): string {
+	const normalized = modelSpec.trim().replace(/\s+/g, '_');
+	return `local-transformer:${normalized}:`;
+}
+
 // A stable identifier for the produced embedding space, so switching to a
 // different model (a different `embeddingModel`) is detected as a provider change
 // that re-embeds the corpus (001 FR-020/FR-022). Includes the output dimension,
 // which varies by model.
 function embeddingModelId(modelSpec: string, dimension: number): string {
-	const normalized = modelSpec.trim().replace(/\s+/g, '_');
-	return `local-transformer:${normalized}:d${dimension}`;
+	return `${localTransformerModelIdPrefix(modelSpec)}d${dimension}`;
 }
 
 export async function localTransformerEmbedding(

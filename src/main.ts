@@ -9,6 +9,7 @@ import { createSubscriptionStore } from './collection/subscriptionStore';
 import { startScheduler, type SchedulerHandle } from './collection/scheduler';
 import { runSubscriptionCheck } from './collection/pipeline';
 import type { PipelineHooks } from './collection/pipeline';
+import { reembedCorpus } from './collection/reembed';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 
@@ -87,6 +88,15 @@ export default class PaperGraph3DPlugin extends Plugin {
 			{ notify: (message) => new Notice(message) },
 		);
 		await paperStore.load();
+
+		// Converge the persisted corpus on the currently-selected canonical embedding
+		// space (001 FR-022 / 002 FR-045) — e.g. after the user switched embedding
+		// provider, or a collection-time upgrade was left pending. Runs in the
+		// background, off the load path, touching only off-canonical papers.
+		void reembedCorpus(paperStore, {
+			provider: this.settings.embeddingProvider ?? 'bundled',
+			localModel: this.settings.localEmbeddingModel,
+		}).catch(() => undefined);
 
 		const pipelineHooks: PipelineHooks = {
 			persist: (paper, summary) =>
