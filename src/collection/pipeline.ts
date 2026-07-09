@@ -1,5 +1,8 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
+import type { EmbeddingConfig } from './embeddingUpgrade';
+import { computeBaselineEmbedding } from './embedding';
+import { upgradeEmbedding } from './embeddingUpgrade';
 import { enrichFromSemanticScholar } from './enrichment';
 import { parseArxivEntry } from './arxivParser';
 import { promote } from './promotion';
@@ -30,6 +33,7 @@ export async function runCollectionPass(
 	isSummarizationEnabled: () => boolean,
 	getSemanticScholarApiKey: () => string | undefined,
 	enrich: EnrichFn = enrichFromSemanticScholar,
+	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<void> {
 	const state = createCollectionRunState(hooks.alreadyPersisted);
 
@@ -72,6 +76,40 @@ export async function runCollectionPass(
 			continue;
 		}
 
+		// FR-044: attach the mandatory bundled baseline embedding at promotion,
+		// before persistence, independent of summarization/LLM (004). It is offline,
+		// deterministic, and never blocks — a failure leaves the embedding pending
+		// (null) rather than holding the paper back (001 FR-021). When a non-bundled
+		// canonical provider is selected the baseline is still stored (pending
+		// upgrade) and re-embedded later; the local-transformer / LLM upgrade at this
+		// seam is added by a later increment (002 FR-045/FR-046).
+		try {
+			const baseline = computeBaselineEmbedding(paper.title, paper.abstract);
+			paper.embedding = baseline.embedding;
+			paper.embeddingModel = baseline.embeddingModel;
+			paper.embeddingSource = baseline.embeddingSource;
+		} catch {
+			// Leave the embedding pending (null); persistence still proceeds.
+		}
+
+		// FR-045: if a non-bundled canonical provider is selected, upgrade the
+		// baseline to it at this seam (read live per paper). An upgrade failure
+		// returns undefined and the baseline is kept as pending upgrade — embedding
+		// never blocks persistence (001 FR-021 / 002 FR-046).
+		const embeddingConfig = getEmbeddingConfig?.();
+		if (embeddingConfig !== undefined && embeddingConfig.provider !== 'bundled') {
+			const upgraded = await upgradeEmbedding(
+				paper.title,
+				paper.abstract,
+				embeddingConfig,
+			);
+			if (upgraded !== undefined) {
+				paper.embedding = upgraded.embedding;
+				paper.embeddingModel = upgraded.embeddingModel;
+				paper.embeddingSource = upgraded.embeddingSource;
+			}
+		}
+
 		let summary: SummaryResult | undefined;
 		if (isSummarizationEnabled() && hooks.summarize !== undefined) {
 			try {
@@ -112,6 +150,7 @@ export async function runSubscriptionCheck(
 	isSummarizationEnabled: () => boolean,
 	getSemanticScholarApiKey: () => string | undefined,
 	enrich?: EnrichFn,
+	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<{ truncated: boolean; coveredThrough: number }> {
 	const { entries, truncated, coveredThrough } = await queryArxiv(subscription, window);
 
@@ -130,6 +169,7 @@ export async function runSubscriptionCheck(
 		isSummarizationEnabled,
 		getSemanticScholarApiKey,
 		enrich,
+		getEmbeddingConfig,
 	);
 
 	return { truncated, coveredThrough };

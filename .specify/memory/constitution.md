@@ -1,13 +1,14 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0 (amendment 2026-07-07: desktop-only platform decision + LLM embedding disclosure)
+Version change: 1.1.0 → 1.2.0 (amendment 2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
 Modified principles:
-  - I. Obsidian Plugin Platform Compliance — mobile-default note now records the
-    deliberate desktop-only decision for PaperGraph3D (features 006/007)
-  - IV. Transparent Use of Sensitive APIs — optional LLM embedding providers
-    (Claude / Gemini / OpenAI) noted as disclosed opt-in external calls
+  - IV. Transparent Use of Sensitive APIs — the user-supplied local-transformer
+    URL option is a user-initiated model download, disclosed as opt-in external
+    access alongside the LLM API providers
 New/updated sections: Additional Constraints → "Platform target (desktop-only)" bullet
+  updated for the three-provider embedding model and the URL-fetch disclosure
+Prior amendment: 1.0.0 → 1.1.0 (2026-07-07: desktop-only platform decision + LLM embedding disclosure; Principles I and IV)
 Prior history: [TEMPLATE] → 1.0.0 (initial concrete ratification); modified principles then: N/A (first time placeholders filled in)
 Added sections:
   - I. Obsidian Plugin Platform Compliance
@@ -131,11 +132,19 @@ including the maintainer's own.
   — `manifest.json` `isDesktopOnly: true`. This is the deliberate, documented
   exception Principle I allows: the 3D visualization (007) and native local
   content-embedding + 2D projection (002/006) depend on desktop/Electron
-  capabilities not viable on Obsidian mobile. Optional summary/embedding
-  upgrades may call external LLM providers (Claude / Gemini / OpenAI); like all
-  sensitive-API use these are opt-in, credential-gated, and disclosed per
-  Principle IV, and the plugin still functions fully offline (local baseline
-  embedding, no summaries) with them off.
+  capabilities not viable on Obsidian mobile. Content embeddings come from one
+  of three explicitly-selected providers (001 FR-022): a **bundled local
+  baseline** (default, fully offline, no setup), a **user-supplied local
+  transformer** the user points to by file path or URL and which runs
+  **on-device** (no paper data leaves the vault), or an **external LLM API**
+  (Claude / Gemini / OpenAI). Two of these involve external access: the
+  local-transformer **URL** option performs a user-initiated model download,
+  and the LLM API option sends title+abstract to the provider; like all
+  sensitive-API use these are opt-in, gated (a URL/path or API key the user
+  supplies), and disclosed per Principle IV. Selecting the bundled baseline or a
+  local-path model is fully offline. The plugin still functions fully offline by
+  default (bundled baseline embedding, no summaries) with all external options
+  off.
 - **Toolchain lock-in**: npm is the package manager and esbuild is the
   bundler; `esbuild.config.mjs` and the npm scripts are the source of truth
   for how `src/main.ts` becomes `main.js`.
@@ -184,4 +193,4 @@ there for needed edits. `/speckit-plan` MUST cite the specific principles a
 feature's design satisfies or deviates from; deviations require justification
 recorded in that feature's `plan.md` Complexity Tracking section.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-07
+**Version**: 1.2.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-09

@@ -30,6 +30,12 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
+		// Optional local-transformer embedding runtime (002 FR-046), loaded via a
+		// lazy dynamic import only when the user selects that provider. Kept external
+		// so the heavy onnxruntime/WASM dependency never bloats or breaks the core
+		// bundle; making it load in a shipped desktop plugin is a follow-up that
+		// needs verification in the real Obsidian environment.
+		'@huggingface/transformers',
 		...builtinModules,
 	],
 	format: 'cjs',

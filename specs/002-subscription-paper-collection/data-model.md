@@ -26,15 +26,21 @@ interface SubscriptionStore {
 
 **Immediate check on genuinely-new registration** (FR-028, research.md Decision 34): `SubscriptionStoreDeps` carries an optional `onRegistered?: (subscription) => void` that `register` fires **only** after persisting a genuinely-new subscription — never on the idempotent-hit path. `main.ts` (T020) wires it to the scheduler's `checkNow` handle so a new subscription is checked right away rather than up to ~15 min later; the callback seam keeps `subscriptionStore.ts` unaware `scheduler.ts` exists.
 
-## `PluginSettings` extension (FR-020)
+## `PluginSettings` extension (FR-020, FR-045/FR-046)
 
-The only field this feature adds to 001's baseline (an FR-016-style additive extension, not a modification of anything 001 already fixed):
+The fields this feature adds to 001's baseline (FR-016-style additive extensions, not modifications of anything 001 already fixed):
 
 ```ts
 // Added to src/models/settings.ts's PluginSettings by this feature:
 interface PluginSettings {
   // ...001's existing fields...
   semanticScholarApiKey?: string; // optional; absent by default; read by semanticScholarClient.ts
+  // Explicit embedding-provider selection (001 FR-022 / FR-045). Absent -> the
+  // bundled baseline is canonical (the default). See EMBEDDING_PROVIDERS.
+  embeddingProvider?: 'bundled' | 'local-transformer' | 'llm';
+  // Local transformer model path or URL, read only when
+  // embeddingProvider === 'local-transformer' (FR-046).
+  localEmbeddingModel?: string;
 }
 ```
 
@@ -229,8 +235,8 @@ interface PipelineHooks {
   alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
 }
 
-// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey, enrich?) —
-// isSummarizationEnabled/getSemanticScholarApiKey are FUNCTIONS, called live each time,
+// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey, enrich?, getEmbeddingConfig?) —
+// isSummarizationEnabled/getSemanticScholarApiKey/getEmbeddingConfig are FUNCTIONS, called live each time,
 // never captured booleans/strings (research.md Decision 26, FR-021) — see below. `enrich`
 // is an OPTIONAL DI seam (research.md Decision 36): omitted in production (defaults to the
 // real enrichFromSemanticScholar), but overridable by quickstart.md/tests so a check that
