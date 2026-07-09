@@ -9,6 +9,8 @@ import { createSubscriptionStore } from './collection/subscriptionStore';
 import { startScheduler, type SchedulerHandle } from './collection/scheduler';
 import { runSubscriptionCheck } from './collection/pipeline';
 import type { PipelineHooks } from './collection/pipeline';
+import { createObsidianFileStore } from './persistence/filestore-obsidian';
+import { PaperStore } from './persistence/store';
 
 // Bilingual-ready user-facing copy (constitution Principle V). Korean first, English second.
 function subscriptionFailureNotice(
@@ -74,11 +76,26 @@ export default class PaperGraph3DPlugin extends Plugin {
 		// Ensure persisted subscriptions are loaded before the catch-up pass reads them.
 		await store.ready();
 
-		// Pipeline hooks are stubs until 003 (persistence) / 004 (summarization) ship. The
-		// summarize hook is intentionally omitted (undefined) until 004 exists.
+		// Persist collected papers through 003's PaperStore over a vault-backed FileStore
+		// scoped to the user's storage folder (FR-006). Load the on-disk index up front so
+		// dedup (alreadyPersisted) is correct across restarts — a paper saved in a previous
+		// session must not be re-persisted on the next collection pass. Store notices reach
+		// the user via Obsidian's Notice. The summarize hook stays omitted (undefined) until
+		// 004 (summarization) ships.
+		const paperStore = new PaperStore(
+			createObsidianFileStore(this.app, this.settings.storageLocation),
+			{ notify: (message) => new Notice(message) },
+		);
+		await paperStore.load();
+
 		const pipelineHooks: PipelineHooks = {
-			persist: async () => {},
-			alreadyPersisted: async () => false,
+			persist: (paper, summary) =>
+				paperStore.upsert({
+					paper,
+					summary: summary?.summary,
+					futureDirections: summary?.futureDirections,
+				}),
+			alreadyPersisted: async (sourceId) => paperStore.has(sourceId),
 		};
 
 		scheduler = await startScheduler(this, {
