@@ -32,11 +32,13 @@
 ## Notes
 
 - Source: promoted from `specs-input/005-manual-paper-refresh/spec.md` (v2, clarified across sessions 2026-07-04 and 2026-07-06); numbered **005** (not the naive next-sequential 004) because 004 is a distinct in-flight feature (paper summarization) that this spec cross-references, and the branch/input directory fix this feature as 005.
-- Two **Open Questions** remain intentionally deferred to `/speckit-clarify` / `/speckit-plan` — they are not `[NEEDS CLARIFICATION]` blockers and do not affect the completeness of the mandatory sections:
-  - **OQ-2**: whether a bare `citationsKnown`/`citationCount` change (no abstract change) should also re-trigger 004 re-summarization (cross-referenced at 004 OQ-4).
-  - **OQ-3**: the trigger surface (command palette vs. graph toolbar, etc.) for the bulk refresh — a plan-level UX decision owned by 007/008.
-- Several requirements are deliberately parameterized to sibling specs (003 pairing/write policy, 002 provider boundary + Semantic Scholar batch endpoint + in-flight-discard, 004 narrow summarization input, 006 graph edge resolution, 007/008 UI surface). These are dependency references, not unresolved ambiguities.
+- **OQ-2** resolved 2026-07-09 (FR-020): an uncited ↔ cited citation-status flip, even without an abstract change, independently triggers 004 regeneration in both directions.
+- **OQ-3** remains intentionally deferred to `/speckit-plan` — not a `[NEEDS CLARIFICATION]` blocker: the trigger surface (command palette vs. graph toolbar, etc.) for the bulk refresh, a plan-level UX decision owned by 007/008.
+- **Content embedding (FR-019)** added 2026-07-09, reflecting 001 FR-019–FR-022 and 002 FR-044–FR-046 (the friend-authored embedding architecture: a mandatory bundled local baseline plus an explicit three-way canonical-provider selector). This feature never implements embedding computation itself — it always delegates to 002's existing canonical-provider logic when a refresh changes a paper's title/abstract, mirroring how it already delegates text generation to 004.
+- **FR-021** added 2026-07-10 (cross-document review finding): promotes a behavior that previously existed only in this feature's design artifacts (data-model.md/contracts) — that arXiv content and Semantic Scholar citation lookups fail independently, and a store-absent `sourceId` fails before any provider call — into the spec itself, so it is no longer derivable only from downstream planning documents. FR-009 and FR-019 were also tightened with the concrete year-granularity comparison and the embedding-fallback rule, respectively, for the same reason.
+- **FR-022** added 2026-07-10 (purpose-fit review finding): a running bulk refresh can now be cancelled by the user, mirroring 002's own precedent for long-running convenience actions (backfill cancellation, 002 FR-043). Cancellation lets the in-flight paper finish, touches no further paper, and releases the bulk guard immediately (SC-013).
+- Several requirements are deliberately parameterized to sibling specs (003 pairing/write policy, 002 provider boundary + Semantic Scholar batch endpoint + in-flight-discard + embedding computation, 004 narrow summarization input, 006 graph edge resolution, 007/008 UI surface). These are dependency references, not unresolved ambiguities.
 
 ## Result
 
-All checklist items pass. Spec is ready for `/speckit-clarify` (optional — to resolve OQ-2) or `/speckit-plan`.
+All checklist items pass. Spec is ready for `/speckit-plan` (already executed — see plan.md) or `/speckit-implement`.
