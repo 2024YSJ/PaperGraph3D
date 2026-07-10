@@ -56,7 +56,7 @@ Single project (Obsidian plugin, one esbuild bundle). All new code under `src/re
 
 **Goal**: A user can pick one already-saved paper and refresh its citation count, references, title/abstract/authors, summary/future-directions text, and content embedding — writing through 003's existing pairing without touching the user's hand-written body.
 
-**Independent Test**: Per spec.md's own Independent Test for US1 — save a paper with known citation count/abstract, refresh it against a stubbed provider returning higher citations, updated relationships, and a changed abstract; confirm record + note managed region reflect the new values, the summary/future-directions text and embedding are regenerated because the abstract changed, and the user's body text is unchanged. Verified by quickstart.md Scenarios 1, 1b, 1c, 2, 3, 3b, 3c, 4.
+**Independent Test**: Per spec.md's own Independent Test for US1 — save a paper with known citation count/abstract, refresh it against a stubbed provider returning higher citations, updated relationships, and a changed abstract; confirm record + note managed region reflect the new values, the summary/future-directions text and embedding are regenerated because the abstract changed, and the user's body text is unchanged. Verified by quickstart.md Scenarios 1, 1b, 1c, 1d, 2, 3, 3b, 3c, 4.
 
 ### Implementation for User Story 1
 
@@ -65,10 +65,10 @@ Single project (Obsidian plugin, one esbuild bundle). All new code under `src/re
 - [ ] T010 [US1] Implement the citation lookup step in `refreshOne.ts`: when `options.citationOverride` is not supplied (single-paper mode), call `fetchSemanticScholarPaper`; on success, update `citationCount`/`references`/`citationsKnown = true` (FR-002); on failure/no-record, leave `citationCount`/`references`/`citationsKnown` exactly as previously stored — this is **not** a refresh failure, `status` stays on track for `'updated'` (FR-021, data-model.md § Independent provider failure)
 - [ ] T011 [US1] Implement the embedding recomputation step in `refreshOne.ts` (FR-019): compare the freshly-fetched title/abstract against the stored `Paper`'s; if either changed, call `computeCanonicalEmbedding` (T006) with `getEmbeddingConfig()` (read live) and apply its `embedding`/`embeddingModel`/`embeddingSource` onto the `Paper`; if unchanged, carry the stored embedding fields through unmodified — per contracts/refresh-api.md § refreshOne.ts step 5, research.md Decision 9
 - [ ] T012 [US1] Implement the summary-regeneration step in `refreshOne.ts`: call `summaryTrigger.shouldRegenerateSummary` (T005) against the previously-stored `Paper` and the freshly-fetched `{ abstract, citationCount }`; if it returns true **and** `isSummarizationEnabled()` is true (read live), call `hooks.summarize` with the narrow `{ title, abstract, citationCount, citationsKnown }` shape (FR-017); re-check `isSummarizationEnabled()` after the call resolves and discard the result if now false (FR-014's in-flight-discard, mirroring 002 FR-021)
-- [ ] T013 [US1] Implement the persist + guard-release tail in `refreshOne.ts`: call `store.upsert({ paper: <updated Paper>, summary, futureDirections })` (003), release the guard (`releaseSingle` unless `options.alreadyClaimed`), and return `{ status: 'updated' }`; wrap the arXiv/citation calls' unexpected exceptions so they release the guard and return `{ status: 'error'; message }` rather than leaving the guard claimed (FR-005 pairing-never-partially-updated guarantee)
+- [ ] T013 [US1] Implement the persist + guard-release tail in `refreshOne.ts`: call `store.upsert({ paper: <updated Paper>, summary, futureDirections })` (003), release the guard (`releaseSingle` unless `options.alreadyClaimed`), and return `{ status: 'updated' }`; wrap the arXiv/citation calls' unexpected exceptions so they release the guard and return `{ status: 'error'; message }` rather than leaving the guard claimed (FR-005 pairing-never-partially-updated guarantee). The `store.upsert` call MUST target only the refreshed `sourceId` — no other paper's record is read or written by this function (FR-004).
 - [ ] T014 [US1] Wire `refreshOne`'s exported signature exactly per contracts/refresh-api.md § refreshOne.ts: `(store, sourceId, guard, hooks, isSummarizationEnabled, getSemanticScholarApiKey, getEmbeddingConfig, options?: { alreadyClaimed?: boolean; citationOverride?: { citationCount: number; references: PaperSourceId[] } | 'unavailable' })`, threading `getSemanticScholarApiKey()` into the single-paper `fetchSemanticScholarPaper` call (T010), `getEmbeddingConfig()` into the embedding step (T011), and `citationOverride` (when supplied by bulk) bypassing the citation call entirely
 
-**Checkpoint**: Run quickstart.md Scenarios 1, 1b, 1c, 2, 3, 3b, 3c, 4 against stubbed `fetchArxivEntryById`/`fetchSemanticScholarPaper`, 002's real (offline) embedding functions, and 003's `InMemoryFileStore`. User Story 1 is fully functional and independently testable — `npm run build` and `npm run lint` pass.
+**Checkpoint**: Run quickstart.md Scenarios 1, 1b, 1c, 1d, 2, 3, 3b, 3c, 4 against stubbed `fetchArxivEntryById`/`fetchSemanticScholarPaper`, 002's real (offline) embedding functions, and 003's `InMemoryFileStore`. User Story 1 is fully functional and independently testable — `npm run build` and `npm run lint` pass.
 
 ---
 
@@ -96,9 +96,10 @@ Single project (Obsidian plugin, one esbuild bundle). All new code under `src/re
 
 **Purpose**: Documentation obligations and final full-feature verification.
 
-- [ ] T022 Update `README.md` (and/or settings UI copy, per whichever surfaces provider disclosure today) per constitution Principle IV: state that a manual refresh action, not only subscription collection, can trigger arXiv/Semantic Scholar calls — this feature reuses already-disclosed providers but adds a second trigger of them (plan.md Constitution Check § IV)
-- [ ] T023 Run the full `quickstart.md` walkthrough (all scenarios: 1, 1b, 1c, 2, 3, 3b, 3c, 4, 5, 6, 7) end-to-end via the project's `esbuild`+`node` scratch-script pattern, confirming zero live network calls are made and that embedding recomputation uses 002's real functions correctly
-- [ ] T024 Run `npm run build` (`tsc --noEmit` + production bundle) and `npm run lint` across the whole repo to confirm no regression outside `src/refresh/`/`src/collection/arxivClient.ts`
+- [ ] T022 Review every user-facing message string produced by `src/refresh/` (not-found, provider-error, already-in-progress/already-in-flight, bulk-cancelled, progress text) and ensure each is bilingual (Korean + English) or plain, translation-friendly English per constitution Principle V — matching 002's existing failure-notice copy style; this was flagged in plan.md's Constitution Check § V ("carried into UX copy tasks") but had no dedicated task until now
+- [ ] T023 Update `README.md` (and/or settings UI copy, per whichever surfaces provider disclosure today) per constitution Principle IV: state that a manual refresh action, not only subscription collection, can trigger arXiv/Semantic Scholar calls — this feature reuses already-disclosed providers but adds a second trigger of them (plan.md Constitution Check § IV)
+- [ ] T024 Run the full `quickstart.md` walkthrough (all scenarios: 1, 1b, 1c, 1d, 2, 3, 3b, 3c, 4, 5, 6, 7) end-to-end via the project's `esbuild`+`node` scratch-script pattern, confirming zero live network calls are made and that embedding recomputation uses 002's real functions correctly
+- [ ] T025 Run `npm run build` (`tsc --noEmit` + production bundle) and `npm run lint` across the whole repo to confirm no regression outside `src/refresh/`/`src/collection/arxivClient.ts`; also confirm (per FR-007) that no file under `src/refresh/` registers a timer/interval — grep for `registerInterval`/`setInterval` returns zero matches, consistent with this feature being manual-only
 
 ---
 
@@ -121,7 +122,7 @@ Single project (Obsidian plugin, one esbuild bundle). All new code under `src/re
 
 - T003, T004, T005, T006, T007 (Phase 2) touch five different files with no dependency on each other — run all five in parallel, after T001/T002 (Setup) complete.
 - No task within Phase 3 or Phase 4 is parallelizable with another task in the same phase (both are single-file sequential builds, per contracts/refresh-api.md's per-file step ordering).
-- T022 (documentation) can run in parallel with T023/T024 (verification) once both user stories are complete.
+- T022 (bilingual copy review) and T023 (documentation) can run in parallel with each other and with T024/T025 (verification) once both user stories are complete.
 
 ---
 
@@ -154,7 +155,7 @@ Task: "Add fetchArxivEntryById to src/collection/arxivClient.ts"
 1. Setup + Foundational → foundation ready (T001–T007).
 2. Add User Story 1 → validate via quickstart Scenarios 1–4 → MVP ready (T008–T014).
 3. Add User Story 2 → validate via quickstart Scenarios 5–7 (T015–T021) — this story is not independent of US1's `refreshOne`, so it cannot ship before US1.
-4. Polish (T022–T024) → feature-complete.
+4. Polish (T022–T025) → feature-complete.
 
 ---
 

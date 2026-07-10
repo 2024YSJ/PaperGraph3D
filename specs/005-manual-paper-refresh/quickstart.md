@@ -35,6 +35,12 @@ Validates this feature end-to-end offline, without a live network call, using st
 1. Repeat Scenario 1's content change, but pass `getEmbeddingConfig: () => ({ provider: 'llm' })`.
 2. Assert: since `upgradeEmbedding` returns `undefined` for `provider: 'llm'` (002's stub — no 004 hook implemented yet), the applied embedding falls back to `computeBaselineEmbedding`'s result with `embeddingSource: 'local'` — the refresh still completes as `{ status: 'updated' }`, never blocked by the unimplemented LLM path.
 
+## Scenario 1d — A single-paper refresh never touches any other saved paper (FR-004, SC-003)
+
+1. Record Paper B's full stored state (record + note) before calling `refreshOne`.
+2. Repeat Scenario 1's content-changing refresh for Paper A only.
+3. Assert: Paper B's stored record and note are byte-identical to what was recorded in step 1 — no field, timestamp, or embedding on Paper B changed as a side effect of refreshing Paper A.
+
 ## Scenario 2 — Citation-status flip alone triggers regeneration, no double-call (FR-020, SC-010)
 
 1. Reset Paper A's stored `citationCount` to `0`. Stub the arXiv lookup to return the **same** abstract (no content change) and citation lookup to return `citationCount: 2`.
