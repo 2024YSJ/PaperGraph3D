@@ -66,14 +66,6 @@ All items below were resolved by reading 002's already-implemented provider clie
 
 **Alternatives considered**: Returning an async generator that yields progress — rejected as a heavier API shape than a callback for what is fundamentally a side-effecting notification.
 
-## Decision 12: bulk cancellation reuses the concurrency guard as the cancel signal, not `AbortController`
-
-**Decision**: `ConcurrencyGuard` (Decision 3) gains two more methods: `requestBulkCancel(): void` and `isBulkCancelRequested(): boolean`. `runBulkRefresh`'s per-paper loop checks `isBulkCancelRequested()` between papers (after one `refreshOne` call settles, before starting the next) and stops the loop early if true, returning the `BulkRefreshResult` built from whatever was processed so far — no `RefreshOutcome`/`BulkRefreshResult` shape change needed (FR-022, SC-013). `guard.releaseBulk()` (already called at the end of the loop, Decision 3) clears both the bulk-active flag and the cancel-requested flag together, so a fresh `runBulkRefresh` call afterward starts clean.
-
-**Rationale**: FR-022 requires the in-flight paper to finish rather than being interrupted mid-write — checking the flag *between* papers, not inside `refreshOne`, is exactly this behavior, and it's a one-line addition to a loop that already exists (Decision 4's pacing loop). Reusing `ConcurrencyGuard` — which 008 already holds a reference to, to call `runBulkRefresh` in the first place — means 008's cancel trigger (whatever UI it wires) needs no new object reference beyond the guard it already has.
-
-**Alternatives considered**: Passing a Web-standard `AbortSignal` into `runBulkRefresh` — rejected as introducing a browser/Node API this project has otherwise avoided (no existing 001-005 module uses `AbortController`), and as overkill for a check-between-iterations use case with no need for `AbortSignal`'s composability (timeout races, fetch cancellation, etc.) that this feature doesn't have. A signal-based approach would also require inventing a *second* place (beyond the guard) for 008 to hold a cancellation handle per run.
-
 ## Decision 9: embedding recomputation on content change composes 002's two already-exported functions, never reimplements or reaches into 002's private re-embed helper
 
 **Decision**: `refreshOne.ts` computes a paper's canonical embedding, when title/abstract changed (FR-019), with a small local composition function equivalent in behavior to `reembed.ts`'s private (unexported) `computeCanonical`:
@@ -117,3 +109,11 @@ The embedding-provider selection (`EmbeddingConfig`) is read live via an injecte
 **Rationale**: `Paper.publicationYear` (001) is a bare year integer; no finer-grained collection/refresh timestamp exists to compute a rolling 365-day window from, and the spec's Assumptions deliberately avoid adding one.
 
 **Alternatives considered**: None — this is the only comparison the existing field supports.
+
+## Decision 12: bulk cancellation reuses the concurrency guard as the cancel signal, not `AbortController`
+
+**Decision**: `ConcurrencyGuard` (Decision 3) gains two more methods: `requestBulkCancel(): void` and `isBulkCancelRequested(): boolean`. `runBulkRefresh`'s per-paper loop checks `isBulkCancelRequested()` between papers (after one `refreshOne` call settles, before starting the next) and stops the loop early if true, returning the `BulkRefreshResult` built from whatever was processed so far — no `RefreshOutcome`/`BulkRefreshResult` shape change needed (FR-022, SC-013). `guard.releaseBulk()` (already called at the end of the loop, Decision 3) clears both the bulk-active flag and the cancel-requested flag together, so a fresh `runBulkRefresh` call afterward starts clean.
+
+**Rationale**: FR-022 requires the in-flight paper to finish rather than being interrupted mid-write — checking the flag *between* papers, not inside `refreshOne`, is exactly this behavior, and it's a one-line addition to a loop that already exists (Decision 4's pacing loop). Reusing `ConcurrencyGuard` — which 008 already holds a reference to, to call `runBulkRefresh` in the first place — means 008's cancel trigger (whatever UI it wires) needs no new object reference beyond the guard it already has.
+
+**Alternatives considered**: Passing a Web-standard `AbortSignal` into `runBulkRefresh` — rejected as introducing a browser/Node API this project has otherwise avoided (no existing 001-005 module uses `AbortController`), and as overkill for a check-between-iterations use case with no need for `AbortSignal`'s composability (timeout races, fetch cancellation, etc.) that this feature doesn't have. A signal-based approach would also require inventing a *second* place (beyond the guard) for 008 to hold a cancellation handle per run.

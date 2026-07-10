@@ -88,7 +88,7 @@ Single project (Obsidian plugin, one esbuild bundle). All new code under `src/re
 - [ ] T020 [US2] Implement the guard release + result tail in `bulkRefresh.ts`: after the loop completes (normally or via T019's cancellation break), release `guard.releaseBulk()` (which also clears the cancel-requested flag) and return `{ matchedCount: matched.length, failures }` — per contracts/refresh-api.md § bulkRefresh.ts, data-model.md § BulkRefreshRun
 - [ ] T021 [US2] Wire `runBulkRefresh`'s exported signature exactly per contracts/refresh-api.md § bulkRefresh.ts: `(store, guard, hooks, isSummarizationEnabled, getSemanticScholarApiKey, getEmbeddingConfig, onProgress?)` returning `Promise<BulkRefreshResult | { status: 'alreadyRunning' }>`
 
-**Checkpoint**: Run quickstart.md Scenarios 5, 6 against the same stubs plus a stubbed `fetchSemanticScholarBatch`. Both user stories are independently functional — `npm run build` and `npm run lint` pass.
+**Checkpoint**: Run quickstart.md Scenarios 5, 6, 7 against the same stubs plus a stubbed `fetchSemanticScholarBatch`. Both user stories are independently functional — `npm run build` and `npm run lint` pass.
 
 ---
 

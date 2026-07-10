@@ -70,7 +70,7 @@ As a user whose subscriptions have run for a long time, I want to refresh every 
 
 **Why this priority**: A convenience layered on top of User Story 1's single-paper refresh; valuable once a vault has accumulated enough papers that one-at-a-time refreshing is impractical, but not required for the core save pipeline.
 
-**Independent Test**: Save several papers with a mix of publication years (some within the last year, some older), trigger the bulk refresh action, and confirm only the papers published within the last year were re-checked against a (stubbed) provider, processed one at a time at a pace that completes well under the naive "3 seconds per paper" figure, with visible progress throughout, while older papers and unrelated notes are untouched.
+**Independent Test**: Save several papers with a mix of publication years (some within the last year, some older), trigger the bulk refresh action, and confirm only the papers published within the last year were re-checked against a (stubbed) provider, processed one at a time at a pace that completes well under the naive "3 seconds per paper" figure, with visible progress throughout, while older papers and unrelated notes are untouched; separately, cancel a run mid-way and confirm already-processed papers keep their updates, unreached papers are untouched, and a new run can start immediately (FR-022).
 
 **Acceptance Scenarios**:
 
@@ -155,7 +155,7 @@ As a user whose subscriptions have run for a long time, I want to refresh every 
 
 ## Assumptions
 
-- The refresh action is surfaced to the user through the graph's right-click menu (007) and/or a command; this feature provides the refresh behavior itself, not its menu placement. The bulk refresh (FR-009) is surfaced as a separate, explicit command/action distinct from the per-node single refresh, since it targets many papers rather than one.
+- The refresh action is surfaced to the user through the graph's right-click menu (007) and/or a command; this feature provides the refresh behavior itself, not its menu placement. The bulk refresh (FR-009) is surfaced as a separate, explicit command/action distinct from the per-node single refresh, since it targets many papers rather than one. The bulk-cancel action (FR-022) is likewise a 008-surfaced trigger — this feature exposes the cancellation capability, not the button/command that invokes it.
 - Whether a manually edited managed field is overwritten follows 003's policy: the JSON record is authoritative and its managed region is rebuilt on update.
 - The "within the last year" window (FR-009) is judged by `publicationYear` alone, not by when a paper was collected or last refreshed — no new timestamp field is added to 001 for this feature. A future, separate idea (002 automatically re-enriching stored papers on its own schedule, independent of user action) is deliberately out of scope here and recorded elsewhere as a future consideration, not this feature.
 - Version handling for arXiv content is entirely 002's concern (a paper's `sourceId` is already version-stripped at collection time, per 002's own design); this feature never reads, stores, or compares an arXiv version number — it only ever asks "what does the provider say *now*" for a paper's existing identifier.
