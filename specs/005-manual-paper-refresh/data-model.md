@@ -47,17 +47,20 @@ Refresh introduces no new provider-response shape. It reuses, unchanged, from `s
 
 ## State transition this feature governs (not a persisted field)
 
-A paper's **uncited/cited status**, derived live from `Paper.citationCount === 0` vs `> 0`, is the boundary `summaryTrigger.shouldRegenerateSummary` (research.md Decision 5) watches:
+A paper's **uncited status**, defined exactly as 004 needs it — `isUncited = citationsKnown === true && citationCount === 0` (a *confirmed* zero, 001/002 FR-018), never a bare `citationCount === 0` — is what `summaryTrigger.shouldRegenerateSummary` (research.md Decision 5) watches, evaluated against the paper's stored values vs. its **effective** post-refresh values (fetched, or carried-through on an unavailable lookup, FR-021):
 
 ```
-uncited (0) --[refresh raises count > 0]--> cited (nonzero)   => regenerate (drop future-directions)
-cited (nonzero) --[refresh corrects count to 0]--> uncited (0) => regenerate (add future-directions)
-uncited (0) --[refresh confirms still 0]--> uncited (0)        => no trigger from this rule
-cited (nonzero) --[refresh changes count, stays nonzero]--> cited => no trigger from this rule
+uncited (known,0) --[confirmed count > 0]--> cited          => regenerate (drop future-directions)
+cited            --[count corrected to confirmed 0]--> uncited => regenerate (add future-directions)
+un-enriched (unknown,0) --[confirmed as 0]--> uncited (known,0) => regenerate (add future-directions)
+un-enriched (unknown,0) --[confirmed as nonzero]--> cited    => no trigger (summary-only both ways)
+uncited (known,0) --[confirmed still 0]--> uncited            => no trigger
+cited --[count changes, stays nonzero]--> cited              => no trigger
+any --[Semantic Scholar unavailable, values carried through]--> same => no trigger
 ```
 
-Independently, an abstract-content change (FR-014) triggers regardless of which side of this boundary the paper is on or moves to; the two triggers are OR'd (Decision 5), never double-invoked (FR-014/FR-020's "exactly one regeneration call").
+Independently, an abstract-content change (FR-014) triggers regardless of the paper's uncited status; the two triggers are OR'd (Decision 5), never double-invoked (FR-014/FR-020's "exactly one regeneration call").
 
 ## Embedding recomputation trigger (FR-019, not a persisted field)
 
-`Paper.embedding`/`embeddingModel`/`embeddingSource` are existing 001 fields; this feature writes to them under one condition only — a **title or abstract** change, checked via a dedicated `refreshOne.ts` comparison (research.md Decision 9) that is *not* `summaryTrigger.shouldRegenerateSummary` (that predicate only sees `{ abstract, citationCount }`, per FR-014's narrower abstract-only condition, and cannot detect a title-only change). This is a *different* trigger condition than the uncited/cited boundary crossing above: a citation-only change never touches the embedding, while a content change (title and/or abstract) always recomputes it via `computeCanonicalEmbedding` (Decision 9), regardless of whether the citation boundary was also crossed in the same refresh.
+`Paper.embedding`/`embeddingModel`/`embeddingSource` are existing 001 fields; this feature writes to them under one condition only — a **title or abstract** change, checked via a dedicated `refreshOne.ts` comparison (research.md Decision 9) that is *not* `summaryTrigger.shouldRegenerateSummary` (that predicate only sees `{ abstract, citationCount, citationsKnown }`, per FR-014's narrower abstract-only condition, and cannot detect a title-only change). This is a *different* trigger condition than the uncited-status change above: a citation-only change never touches the embedding, while a content change (title and/or abstract) always recomputes it via `computeCanonicalEmbedding` (Decision 9), regardless of whether the uncited status also changed in the same refresh.

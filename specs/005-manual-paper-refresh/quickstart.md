@@ -47,7 +47,9 @@ Validates this feature end-to-end offline, without a live network call, using st
 2. Call `refreshOne(...)` as above.
 3. Assert: `stubSummarize` was called exactly once (status flip 0→nonzero, abstract unchanged); `store.get(...)`'s `embedding` is unchanged (content didn't change — Scenario 1b's rule applies independently).
 4. Repeat with a stub returning `citationCount: 0` on top of a stored nonzero value (cited → uncited) and confirm a regeneration call again.
-5. Repeat with a stub changing `citationCount` from `5` to `9` (same side of the boundary) and confirm `stubSummarize` is **not** called.
+5. Set Paper A to **un-enriched** (`citationsKnown: false`, `citationCount: 0`). Stub the citation lookup to return a confirmed `citationCount: 0`; assert `stubSummarize` **is** called (un-enriched → confirmed-uncited: `isUncited` false→true, FR-020) — a bare-count rule would have missed this.
+6. With Paper A again un-enriched (`citationsKnown: false`, `citationCount: 0`), stub the citation lookup to return `citationCount: 4`; assert `stubSummarize` is **not** called (un-enriched → cited, summary-only both ways — `isUncited` stays false).
+7. Repeat with a stub changing `citationCount` from `5` to `9` (both confirmed, same uncited status) and confirm `stubSummarize` is **not** called.
 
 ## Scenario 3 — Paper not found leaves data untouched (FR-005, SC-004)
 
@@ -64,7 +66,8 @@ Validates this feature end-to-end offline, without a live network call, using st
 
 1. Stub the arXiv lookup for Paper A to return a **changed abstract**, and stub the Semantic Scholar single-paper lookup to fail/return no record.
 2. Call `refreshOne(...)`.
-3. Assert: outcome is `{ status: 'updated' }` (not `'error'`); the stored abstract reflects the new content and the embedding was recomputed (FR-019); `citationCount`/`references`/`citationsKnown` are unchanged from what was stored before the call.
+3. Assert: outcome is `{ status: 'updated' }` (not `'error'`); the stored abstract reflects the new content and the embedding was recomputed (FR-019); `citationCount`/`references`/`citationsKnown` are unchanged from what was stored before the call. (`stubSummarize` *is* called here — the abstract changed, FR-014(a).)
+4. Repeat with an **unchanged** abstract and Semantic Scholar still unavailable; assert `stubSummarize` is **not** called — the carried-through citation values yield no `isUncited` change (FR-021), so neither trigger fires and the citation fields stay as previously stored.
 
 ## Scenario 4 — Concurrent refresh of the same paper is rejected (FR-006)
 

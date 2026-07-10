@@ -97,11 +97,18 @@ import type { RefreshHooks, RefreshOutcome, EmbeddingConfig } from './types';
 // failure rule) — citationCount/references/citationsKnown are carried through from the
 // previously-stored Paper unchanged 4) build the updated Paper
 // (title/abstract/authors always overwritten per FR-013; citationCount/references/
-// citationsKnown updated only when citation data was actually obtained this call)
+// citationsKnown updated only when citation data was actually obtained this call;
+// publicationYear and sourceId are NEVER taken from the re-fetched entry — the
+// stored publicationYear is carried through unchanged, FR-002, as the FR-009 window
+// key, and an unparseable re-fetched year does not invalidate the refresh)
 // 5) compare fresh vs. stored title/abstract; if changed, call computeCanonicalEmbedding
 // (getEmbeddingConfig() read live) and apply its embedding/embeddingModel/embeddingSource
 // onto the Paper, else leave the paper's previous embedding fields as-is (FR-019)
-// 6) summaryTrigger.shouldRegenerateSummary against the PREVIOUSLY stored Paper
+// 6) summaryTrigger.shouldRegenerateSummary(previouslyStored, { abstract,
+// citationCount, citationsKnown }) using the EFFECTIVE post-refresh citation
+// values — the fetched values when Semantic Scholar supplied data this call, else
+// the carried-through stored values (FR-021), so an unavailable lookup never reads
+// as an uncited-status change; "uncited" = citationsKnown && count === 0 (FR-020)
 // 7) if triggered AND summarization enabled (read live) -> hooks.summarize, discard on
 // mid-flight disable (FR-014) 8) store.upsert(...) 9) release guard 10) return 'updated'.
 export async function refreshOne(
@@ -155,9 +162,15 @@ export async function runBulkRefresh(
 import type { Paper } from '../models/paper';
 
 // Pure predicate — FR-014 ∨ FR-020 (research.md Decision 5).
+// `fresh` carries the EFFECTIVE post-refresh citation state (refreshOne step 6):
+// fetched values on a Semantic Scholar success, else the carried-through stored
+// values (FR-021) — so an unavailable lookup never reads as a status change.
+// isUncited(p) := p.citationsKnown === true && p.citationCount === 0  // confirmed zero, 001/002 FR-018
+// returns: fresh.abstract !== stored.abstract
+//       || isUncited(stored) !== isUncited(fresh)
 export function shouldRegenerateSummary(
   stored: Paper,
-  fresh: { abstract: string; citationCount: number },
+  fresh: { abstract: string; citationCount: number; citationsKnown: boolean },
 ): boolean;
 ```
 
