@@ -1,6 +1,7 @@
 import type { EmbeddingProvider } from '../models/settings';
 import type { EmbeddingResult } from './embedding';
 import { localTransformerEmbedding } from './localTransformer';
+import { llmEmbeddingUpgrade } from '../services/summarization/embeddingHook';
 
 // The live embedding-provider selection (001 FR-022), read per paper so a settings
 // change mid-batch takes effect for later papers (mirrors summarization's live
@@ -8,6 +9,9 @@ import { localTransformerEmbedding } from './localTransformer';
 export interface EmbeddingConfig {
 	provider: EmbeddingProvider;
 	localModel?: string;
+	// 004-owned (FR-010). Plaintext credential for the LLM embedding upgrade, read
+	// only when provider === 'llm'. Independent of the summarization credential.
+	credential?: string;
 }
 
 // Attempt to upgrade the always-present bundled baseline to the selected canonical
@@ -29,10 +33,15 @@ export async function upgradeEmbedding(
 				}
 				return await localTransformerEmbedding(title, abstract, model);
 			}
-			case 'llm':
-				// The LLM embedding upgrade is a 004-owned hook (002 FR-045), not yet
-				// implemented — a no-op stub until 004 ships. Baseline is kept (pending).
-				return undefined;
+			case 'llm': {
+				// 004-owned (002 FR-045). No/empty credential -> undefined, baseline kept
+				// (pending) — matches every other provider's "nothing configured" contract.
+				const credential = config.credential?.trim();
+				if (credential === undefined || credential.length === 0) {
+					return undefined;
+				}
+				return await llmEmbeddingUpgrade(title, abstract, credential);
+			}
 			case 'bundled':
 			default:
 				return undefined;

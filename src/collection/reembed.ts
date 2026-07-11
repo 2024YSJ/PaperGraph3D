@@ -79,13 +79,6 @@ export async function reembedCorpus(
 ): Promise<ReembedSummary> {
 	const summary: ReembedSummary = { scanned: 0, reembedded: 0, skipped: 0, failed: 0 };
 
-	// The LLM upgrade is a 004-owned hook not yet implemented; there is no canonical
-	// LLM space to converge to, so re-embedding is a no-op that must not destroy
-	// existing vectors. (Removed once the LLM provider ships.)
-	if (config.provider === 'llm') {
-		return summary;
-	}
-
 	for await (const paper of store.all()) {
 		summary.scanned++;
 		if (isCanonical(paper, config)) {
