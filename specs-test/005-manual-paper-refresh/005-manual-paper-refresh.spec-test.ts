@@ -489,6 +489,61 @@ async function main(): Promise<void> {
 		await p1;
 	});
 
+	// FR-018b (added 2026-07-11): a matched set over the implementation's threshold (301
+	// papers, seeded here to exceed it) is confirmed with the caller before any provider
+	// call is made.
+	async function seedLargeSet(store: PaperStore, a: Api, n: number): Promise<PaperSourceId[]> {
+		const ids: PaperSourceId[] = [];
+		for (let i = 0; i < n; i += 1) {
+			const sid = `arxiv:2301.9${String(i).padStart(4, '0')}` as PaperSourceId;
+			ids.push(sid);
+			await seed(store, paper({ sourceId: sid }));
+			a.arxiv.set(baseOf(sid), entry(baseOf(sid)));
+			a.s2.set(baseOf(sid), { citationCount: 1 });
+		}
+		return ids;
+	}
+
+	await check('FR-018b-declined', 'A declined confirmation on an over-threshold matched set makes zero provider calls and leaves the store untouched', async () => {
+		const a = resetApi(); const { store } = newStore();
+		await seedLargeSet(store, a, 301);
+		let confirmed = false;
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled, undefined, async (n) => {
+			confirmed = true;
+			assert(n === 301, `confirmLargeRun called with the matched count (got ${n})`);
+			return false;
+		});
+		assert(confirmed, 'confirmLargeRun was invoked for a 301-paper matched set');
+		assert('status' in res && res.status === 'declinedLargeRun', `declinedLargeRun (got ${JSON.stringify(res)})`);
+		assert(a.counts.arxiv === 0 && a.counts.s2batch === 0, 'no provider call made before the decline');
+	});
+
+	await check('FR-018b-confirmed', 'A confirmed over-threshold run proceeds exactly as an ordinary bulk run', async () => {
+		const a = resetApi(); const { store } = newStore();
+		const ids = await seedLargeSet(store, a, 301);
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled, undefined, async () => true);
+		assert(!('status' in res), 'bulk returned a normal result, not a declined/rejected status');
+		if (!('status' in res)) assert(res.matchedCount === 301, `all 301 processed (got ${res.matchedCount})`);
+		assert((await store.get(ids[0]!))!.citationCount === 1, 'papers were actually refreshed after confirmation');
+	});
+
+	await check('FR-018b-hookless', 'An over-threshold run with no confirmLargeRun hook proceeds unconditionally (008 not yet wired)', async () => {
+		const a = resetApi(); const { store } = newStore();
+		await seedLargeSet(store, a, 301);
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
+		assert(!('status' in res), 'bulk proceeded without a hook');
+		if (!('status' in res)) assert(res.matchedCount === 301, `all 301 processed (got ${res.matchedCount})`);
+	});
+
+	await check('FR-018b-under-threshold', 'A matched set at or under the threshold is never asked for confirmation, even when a hook is supplied', async () => {
+		const a = resetApi(); const { store } = newStore();
+		await seedLargeSet(store, a, 300);
+		let confirmed = false;
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled, undefined, async () => { confirmed = true; return false; });
+		assert(!confirmed, 'confirmLargeRun was NOT invoked at exactly the threshold');
+		assert(!('status' in res), 'bulk proceeded normally');
+	});
+
 	await check('EC-abstract-unchanged', 'Unchanged content refreshes normally with no 004 call (common case)', async () => {
 		const a = resetApi(); const { store } = newStore();
 		await seed(store, paper({ sourceId: A, citationCount: 4, citationsKnown: true }));
