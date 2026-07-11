@@ -131,3 +131,15 @@ export async function queryArxiv(
 
 	return { entries, truncated, coveredThrough };
 }
+
+// NEW for 005. Single-ID direct lookup via arXiv's documented `id_list=` form — no
+// window, no paging (a single-ID lookup returns 0 or 1 entries by construction).
+// Returns the one matching Atom <entry>, or undefined when arXiv has none (FR-005's
+// "no longer found"). Reuses the same DOMParser Atom-parsing pattern queryArxiv uses.
+// research.md Decision 1. Callers map the returned <entry> through parseArxivEntry.
+export async function fetchArxivEntryById(baseArxivId: string): Promise<Element | undefined> {
+	const url = `${ARXIV_API_URL}?id_list=${encodeURIComponent(baseArxivId)}`;
+	const response = await requestUrl({ url });
+	const doc = new DOMParser().parseFromString(response.text, 'application/xml');
+	return Array.from(doc.getElementsByTagName('entry'))[0];
+}
