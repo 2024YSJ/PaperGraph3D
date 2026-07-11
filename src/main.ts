@@ -109,6 +109,12 @@ export default class PaperGraph3DPlugin extends Plugin {
 		};
 
 		scheduler = await startScheduler(this, {
+			// No subscription-management UI exists yet (owned by 008), so a user cannot
+			// intentionally configure a collection plan in-product. Until that ships, perform
+			// NO automatic collection — the plugin must not query arXiv/Semantic Scholar on
+			// startup or on a timer without a deliberate user action (constitution Principle IV;
+			// avoids re-collecting a stray/persisted subscription every launch). 008 removes this.
+			autoStart: false,
 			getSubscriptions: () => store.list(),
 			onSubscriptionChecked: (subscription, checkedThrough, windowFrom) =>
 				store.recordChecked(subscription, checkedThrough, windowFrom),
