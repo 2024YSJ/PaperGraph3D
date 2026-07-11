@@ -89,7 +89,25 @@ async function main() {
 		assert(fm.citationCount === 7, 'citationCount not mirrored');
 		assert(fm.readState === 'unread', 'readState not mirrored');
 		assert(fm.pg3d_sourceId === 'arxiv:2', 'pg3d_sourceId not mirrored');
-		assert(!('references' in fm) && !('schemaVersion' in fm) && !('embedding' in fm), 'note leaked non-mirrored fields');
+		assert(Array.isArray(fm.references) && (fm.references as string[])[0] === 'arxiv:ref', 'references (cited papers) not mirrored');
+		assert(!('schemaVersion' in fm) && !('embedding' in fm), 'note leaked non-mirrored wrapper fields');
+	});
+
+	await check('US1.2b', 'references frontmatter distinguishes unknown / confirmed-none / confirmed-list via citationsKnown', async () => {
+		const renderedNote = async (p: Paper): Promise<string> => {
+			const fs = new InMemoryFileStore();
+			await new PaperStore(fs).upsert(input(p));
+			return (await fs.read((await fs.list()).find((f) => f.endsWith('.md')) as string)) ?? '';
+		};
+		// un-enriched / not-yet-checked (citationsKnown false) -> null, never a bare []
+		const unknown = await renderedNote(paper(40, { citationsKnown: false, references: [] }));
+		assert(unknown.includes('\nreferences: null\n'), 'un-enriched references should render as null');
+		// confirmed by a provider, cites nothing -> []
+		const none = await renderedNote(paper(41, { citationsKnown: true, references: [] }));
+		assert(none.includes('\nreferences: []\n'), 'confirmed-empty references should render as []');
+		// confirmed with citations -> a YAML list of source ids
+		const list = await renderedNote(paper(42, { citationsKnown: true, references: ['arxiv:9'] as Paper['references'] }));
+		assert(list.includes('\nreferences:\n  - "arxiv:9"\n'), 'confirmed references should render as a list');
 	});
 
 	await check('US1.3', 'partial persistence (note write fails) leaves neither record nor note', async () => {

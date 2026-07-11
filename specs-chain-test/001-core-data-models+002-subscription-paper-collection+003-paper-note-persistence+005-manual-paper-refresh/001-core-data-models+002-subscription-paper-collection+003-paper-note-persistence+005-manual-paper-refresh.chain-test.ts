@@ -161,9 +161,12 @@ async function main(): Promise<void> {
 		p.embedding = emb.embedding; p.embeddingModel = emb.embeddingModel; p.embeddingSource = emb.embeddingSource;
 		await store.upsert({ paper: p });
 		const fm = parseNote(await fs.read(await findMd(fs, SID)) as string).frontmatter;
-		for (const leaked of ['references', 'schemaVersion', 'createdAt', 'updatedAt', 'embedding', 'embeddingModel', 'embeddingSource', 'abstract']) {
+		// `references` is now mirrored into the frontmatter (003 FR-002 amended 2026-07-11);
+		// the raw wrapper/embedding fields and the abstract still stay out of it.
+		for (const leaked of ['schemaVersion', 'createdAt', 'updatedAt', 'embedding', 'embeddingModel', 'embeddingSource', 'abstract']) {
 			assert(!(leaked in fm), `frontmatter must not carry '${leaked}'`);
 		}
+		assert(Array.isArray(fm['references']) && (fm['references'] as string[])[0] === 'arxiv:1800.00002', 'references (cited papers) mirrored into frontmatter');
 	});
 
 	// ============ Seam 002 → 005 ============
