@@ -30,6 +30,10 @@ function renderFrontmatter(record: PaperRecord): string {
 		}
 	}
 	lines.push(`publicationYear: ${p.publicationYear}`);
+	// Month/day precision when known (001 publicationDate); omitted for a year-only paper.
+	if (p.publicationDate !== undefined) {
+		lines.push(`publicationDate: ${quote(p.publicationDate)}`);
+	}
 	lines.push(`citationCount: ${p.citationCount}`);
 	lines.push(`readState: ${quote(record.readState)}`);
 	lines.push(`pg3d_sourceId: ${quote(p.sourceId)}`);

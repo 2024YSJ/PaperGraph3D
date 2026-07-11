@@ -79,12 +79,13 @@ async function main() {
 	await check('US1.2', "note managed region mirrors the record's shared fields (FR-002 subset)", async () => {
 		const fs = new InMemoryFileStore();
 		const store = new PaperStore(fs);
-		const p = paper(2, { authors: ['Solo Author'], citationCount: 7 });
+		const p = paper(2, { authors: ['Solo Author'], citationCount: 7, publicationDate: '2020-06-15' });
 		await store.upsert(input(p));
 		const fm = parseNote((await fs.read('Title 2 (2).md')) ?? '').frontmatter;
 		assert(fm.title === p.title, 'title not mirrored');
 		assert(Array.isArray(fm.authors) && (fm.authors as string[])[0] === 'Solo Author', 'authors not mirrored');
 		assert(fm.publicationYear === 2020, 'publicationYear not mirrored');
+		assert(fm.publicationDate === '2020-06-15', 'publicationDate (001 FR-023) not mirrored');
 		assert(fm.citationCount === 7, 'citationCount not mirrored');
 		assert(fm.readState === 'unread', 'readState not mirrored');
 		assert(fm.pg3d_sourceId === 'arxiv:2', 'pg3d_sourceId not mirrored');

@@ -46,16 +46,22 @@ export function parseArxivEntry(entry: Element): PaperCandidate | undefined {
 	}
 
 	let publicationYear: number | undefined;
+	let publicationDate: string | undefined;
 	const publishedText = textOf(entry, 'published');
 	if (publishedText !== undefined) {
 		const parsed = new Date(publishedText);
-		const year = parsed.getUTCFullYear();
-		publicationYear = Number.isFinite(year) ? year : undefined;
+		if (Number.isFinite(parsed.getTime())) {
+			publicationYear = parsed.getUTCFullYear();
+			// arXiv's <published> is a full ISO timestamp; keep month/day precision as
+			// UTC YYYY-MM-DD (001 publicationDate). publicationYear stays the bare year.
+			publicationDate = parsed.toISOString().slice(0, 10);
+		}
 	}
 
 	return {
 		title,
 		publicationYear,
+		publicationDate,
 		authors,
 		citationCount: undefined,
 		abstract,
