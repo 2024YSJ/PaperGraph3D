@@ -212,7 +212,10 @@ async function main(): Promise<void> {
 		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
 		assert(!('status' in res), 'bulk returned a result');
 		if (!('status' in res)) assert(res.matchedCount === 2, `matched exactly A and C (got ${res.matchedCount})`);
-		assert(a.counts.arxiv === 2, `only 2 arXiv lookups, B skipped (got ${a.counts.arxiv})`);
+		// A and C's content is batched into one arXiv call (research.md Decision 4,
+		// corrected); B, outside the window, is never included in that batch at all.
+		assert(a.counts.arxiv === 1, `A and C batched into one arXiv call, B never queried (got ${a.counts.arxiv} calls)`);
+		assert((await store.get(B))!.title === 'OLD TITLE', 'B (outside the window) was never refreshed');
 	});
 
 	await check('US2.2', 'Bulk reports progress (papers processed vs total) as it proceeds', async () => {
@@ -365,16 +368,30 @@ async function main(): Promise<void> {
 	skip('SC-007-scale', 'A 100+ paper bulk stays responsive under real timing', 'literal 100+ scale/UI-responsiveness is a manual/8-owned observation; asserted here structurally with a 3-paper proxy');
 
 	await check('SC-008', 'Individual failures never abort the run; every matched paper attempted; failures surfaced as one summary', async () => {
+		// Two papers share one arXiv batch: one succeeds, one is a genuine per-id
+		// "arXiv no longer has this" (both representable within a single successful
+		// batched response) — the notFound half never aborts the other's refresh.
 		const a = resetApi(); const { store } = newStore();
-		const ids = ['arxiv:2301.30001', 'arxiv:2301.30002', 'arxiv:2301.30003'] as PaperSourceId[];
+		const ids = ['arxiv:2301.30001', 'arxiv:2301.30002'] as PaperSourceId[];
 		await seed(store, paper({ sourceId: ids[0]! })); a.arxiv.set(baseOf(ids[0]!), entry(baseOf(ids[0]!)));
 		await seed(store, paper({ sourceId: ids[1]! })); a.arxiv.set(baseOf(ids[1]!), 'notfound');
-		await seed(store, paper({ sourceId: ids[2]! })); a.arxiv.set(baseOf(ids[2]!), 'throw');
 		for (const sid of ids) a.s2.set(baseOf(sid), { citationCount: 1 });
 		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
 		if (!('status' in res)) {
-			assert(res.matchedCount === 3, 'all three attempted');
-			assert(res.failures.length === 2, 'both failures collected into one summary');
+			assert(res.matchedCount === 2, 'both attempted');
+			assert(res.failures.length === 1 && res.failures[0]!.sourceId === ids[1], 'the notFound half surfaced as one failure, the other still refreshed');
+		}
+	});
+
+	await check('SC-008b', "A failed arXiv batch chunk (research.md Decision 4, corrected) surfaces every one of its papers as a failure, never aborting the run", async () => {
+		const a = resetApi(); const { store } = newStore();
+		const ids = ['arxiv:2301.30011', 'arxiv:2301.30012', 'arxiv:2301.30013'] as PaperSourceId[];
+		for (const sid of ids) { await seed(store, paper({ sourceId: sid })); a.s2.set(baseOf(sid), { citationCount: 1 }); }
+		a.arxiv.set(baseOf(ids[0]!), 'throw'); // any id in the shared chunk failing fails the whole chunk
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
+		if (!('status' in res)) {
+			assert(res.matchedCount === 3, 'all three attempted despite the whole-chunk failure');
+			assert(res.failures.length === 3, 'every paper in the failed chunk surfaced as one failure each');
 		}
 	});
 
@@ -513,13 +530,14 @@ async function main(): Promise<void> {
 		assert((await run({ citationCount: 5, citationsKnown: true }, 9)) === 0, 'cited count change (same status) does not');
 	});
 
-	await check('EC-bulk-batches-citations-arxiv-individual', 'Bulk batches citation lookups but fetches arXiv content per paper', async () => {
+	await check('EC-bulk-batches-citations-and-arxiv-content', 'Bulk batches BOTH citation lookups and arXiv content re-fetch (research.md Decision 4, corrected: arXiv id_list accepts a comma-separated batch, same as 002 collection paging)', async () => {
 		const a = resetApi(); const { store } = newStore();
 		const ids = ['arxiv:2301.60001', 'arxiv:2301.60002', 'arxiv:2301.60003'] as PaperSourceId[];
 		for (const sid of ids) { await seed(store, paper({ sourceId: sid })); a.arxiv.set(baseOf(sid), entry(baseOf(sid))); a.s2.set(baseOf(sid), { citationCount: 1 }); }
-		await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), hooks, enabled, noKey, bundled);
 		assert(a.counts.s2batch === 1 && a.counts.s2single === 0, 'citations via one batch call');
-		assert(a.counts.arxiv === 3, 'arXiv content fetched individually per paper');
+		assert(a.counts.arxiv === 1, 'arXiv content fetched via one batched id_list call, not one per paper');
+		if (!('status' in res)) assert(res.matchedCount === 3 && res.failures.length === 0, 'all three papers refreshed from the one batched call');
 	});
 
 	// ================= summary =================

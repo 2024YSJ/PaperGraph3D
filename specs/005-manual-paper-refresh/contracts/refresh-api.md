@@ -49,13 +49,25 @@ export function createConcurrencyGuard(): ConcurrencyGuard;
 
 FR-006/FR-012: `claimSingle`/`claimForBulkItem` share the same underlying in-flight `Set`, so a single-paper claim and a bulk-item claim on the same sourceId can never both succeed.
 
-## `src/collection/arxivClient.ts` (extended — new export, existing module)
+## `src/collection/arxivClient.ts` (extended — new exports, existing module)
 
 ```ts
 // NEW for 005. Single-ID direct lookup (`id_list=`), no window/paging — returns the one
 // matching Atom <entry>, or undefined if arXiv has none (FR-005's "no longer found").
 // research.md Decision 1.
 export async function fetchArxivEntryById(baseArxivId: string): Promise<Element | undefined>;
+
+// NEW for 005, corrected 2026-07-11 (research.md Decision 4). Bulk-refresh content
+// lookup: `id_list=` accepts a comma-separated batch (verified live), chunked to
+// ARXIV_PAGE_SIZE ids/request and paced at ARXIV_INTER_PAGE_DELAY_MS between chunks —
+// the same pattern queryArxiv already uses for paged discovery. `found` maps each
+// requested id that arXiv still has to its <entry>; an id absent from `found` (and not
+// in `failedIds`) means arXiv has no record (FR-005's "no longer found", batched form).
+// A chunk whose HTTP call itself throws (throttled/malformed) puts every one of that
+// chunk's ids into `failedIds` instead of retrying them individually.
+export async function fetchArxivEntriesByIds(
+  baseArxivIds: string[],
+): Promise<{ found: Map<string, Element>; failedIds: Set<string> }>;
 ```
 
 ## `src/refresh/embeddingRecompute.ts`
@@ -122,6 +134,11 @@ export async function refreshOne(
   options?: {
     alreadyClaimed?: boolean;               // true when called from bulkRefresh, which claimed via claimForBulkItem
     citationOverride?: { citationCount: number; references: PaperSourceId[] } | 'unavailable'; // bulk's pre-fetched batch result for this paper
+    // NEW, corrected 2026-07-11: bulk's pre-fetched fetchArxivEntriesByIds result for this
+    // paper. When present, refreshOne skips its own fetchArxivEntryById call entirely —
+    // 'notFound' mirrors an absent single lookup, 'error' surfaces a failed batch chunk
+    // for this paper without a per-paper retry (research.md Decision 4).
+    contentOverride?: { status: 'found'; entry: Element } | { status: 'notFound' } | { status: 'error'; message: string };
   },
 ): Promise<RefreshOutcome>;
 ```
@@ -133,18 +150,22 @@ import type { PaperStore } from '../persistence/store';
 import type { ConcurrencyGuard } from './concurrencyGuard';
 import type { RefreshHooks, BulkRefreshResult, EmbeddingConfig } from './types';
 
-// Bulk refresh (FR-009–FR-012, FR-015, FR-016, FR-018, FR-019, FR-022). Enumerates
-// store.all() (research.md Decision 10) and selects every Paper with publicationYear >=
-// currentYear - 1 (year-granularity comparison, FR-009, research.md Decision 11), batch-
-// looks-up citation data through fetchSemanticScholarBatch ONCE for the whole matched set,
-// then calls refreshOne sequentially per paper (each with its citationOverride from the
-// batch result and the same hooks/getEmbeddingConfig passed through), pacing arXiv content
-// re-fetches per research.md Decision 4, reporting via onProgress, and never aborting on
-// one paper's failure (FR-011). Between each paper's refreshOne call settling and the next
-// one starting, checks guard.isBulkCancelRequested() (FR-022, research.md Decision 12) —
-// a true reading stops the loop right there, returning matchedCount/failures for whatever
-// was actually processed, and guard.releaseBulk() runs exactly as it would on normal
-// completion.
+// Bulk refresh (FR-009–FR-012, FR-015, FR-016, FR-018, FR-018b, FR-019, FR-022).
+// Enumerates store.all() (research.md Decision 10) and selects every Paper with
+// publicationYear >= currentYear - 1 (year-granularity comparison, FR-009, research.md
+// Decision 11). If the matched set exceeds BULK_LARGE_RUN_THRESHOLD and confirmLargeRun
+// is supplied, awaits it before any provider call — a false resolution returns
+// 'declinedLargeRun' with the store untouched (FR-018b). Otherwise: batch-looks-up
+// citation data through fetchSemanticScholarBatch ONCE (FR-018), batch-looks-up arXiv
+// content through fetchArxivEntriesByIds ONCE (FR-015, corrected — research.md Decision
+// 4), then calls refreshOne sequentially per paper (each with its citationOverride AND
+// contentOverride from the two batch results, plus the same hooks/getEmbeddingConfig
+// passed through) — every iteration is now pure local work (no per-paper network call),
+// reporting via onProgress, and never aborting on one paper's failure (FR-011). Between
+// each paper's refreshOne call settling and the next one starting, checks
+// guard.isBulkCancelRequested() (FR-022, research.md Decision 12) — a true reading stops
+// the loop right there, returning matchedCount/failures for whatever was actually
+// processed, and guard.releaseBulk() runs exactly as it would on normal completion.
 export async function runBulkRefresh(
   store: PaperStore,
   guard: ConcurrencyGuard,
@@ -153,7 +174,11 @@ export async function runBulkRefresh(
   getSemanticScholarApiKey: () => string | undefined,
   getEmbeddingConfig: () => EmbeddingConfig,
   onProgress?: (done: number, total: number) => void,
-): Promise<BulkRefreshResult | { status: 'alreadyRunning' }>;
+  // NEW, added 2026-07-11 (FR-018b). Asked once, before any provider call, only when the
+  // matched set exceeds BULK_LARGE_RUN_THRESHOLD (300). Absent (008 not yet wired) or
+  // resolving true proceeds unconditionally, preserving prior behavior.
+  confirmLargeRun?: (matchedCount: number) => Promise<boolean>,
+): Promise<BulkRefreshResult | { status: 'alreadyRunning' } | { status: 'declinedLargeRun' }>;
 ```
 
 ## `src/refresh/summaryTrigger.ts`
@@ -174,9 +199,9 @@ export function shouldRegenerateSummary(
 ): boolean;
 ```
 
-## Dependencies this feature consumes (no new 002/003 exports needed beyond `fetchArxivEntryById`)
+## Dependencies this feature consumes (no new 002/003 exports needed beyond `fetchArxivEntryById`/`fetchArxivEntriesByIds`)
 
-- `src/collection/arxivClient.ts`: `fetchArxivEntryById` (new), reuses internal Atom-parsing pattern.
+- `src/collection/arxivClient.ts`: `fetchArxivEntryById` (new), `fetchArxivEntriesByIds` (new, corrected 2026-07-11), both reusing the module's shared Atom-parsing guard (`parseArxivEntries`, which also now backs `queryArxiv`'s own paging).
 - `src/collection/arxivParser.ts`: `parseArxivEntry` (single-entry mapping, reused as-is against the one `<entry>` `fetchArxivEntryById` returns).
 - `src/collection/semanticScholarClient.ts`: `fetchSemanticScholarPaper` (single-paper mode), `fetchSemanticScholarBatch` (bulk mode) — both already exist, unchanged.
 - `src/collection/semanticScholarParser.ts`: `parseSemanticScholarPaper`, `toPaperSourceId` — unchanged.

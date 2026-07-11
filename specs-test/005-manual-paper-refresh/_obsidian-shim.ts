@@ -52,12 +52,20 @@ export async function requestUrl(param: RequestUrlParam): Promise<RequestUrlResp
 	if (url.includes('export.arxiv.org')) {
 		a.counts.arxiv += 1;
 		const m = /id_list=([^&]+)/.exec(url);
-		const id = m ? decodeURIComponent(m[1]!) : '';
-		const entry = a.arxiv.get(id);
-		if (entry === 'throw') {
-			throw new Error(`simulated arXiv failure for ${id}`);
+		const raw = m ? decodeURIComponent(m[1]!) : '';
+		// research.md Decision 4 (corrected): id_list is comma-separated for a batched
+		// bulk-refresh content lookup, or a single id for the single-paper path — both
+		// forms share this one branch. 'throw' on ANY requested id simulates the whole
+		// HTTP call failing (a genuine per-id "arXiv succeeded but omitted this one"
+		// failure is not representable within one real batched response — only
+		// whole-call failure or per-id absence ('notfound') are).
+		const ids = raw.split(',');
+		if (ids.some((id) => a.arxiv.get(id) === 'throw')) {
+			throw new Error(`simulated arXiv failure for ${raw}`);
 		}
-		const entries = entry !== undefined && entry !== 'notfound' ? [entry] : [];
+		const entries = ids
+			.map((id) => a.arxiv.get(id))
+			.filter((e): e is EntrySpec => e !== undefined && e !== 'notfound');
 		return { status: 200, text: JSON.stringify({ entries }), json: undefined };
 	}
 

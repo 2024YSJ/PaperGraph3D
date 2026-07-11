@@ -33,6 +33,12 @@ export async function refreshOne(
 	options?: {
 		alreadyClaimed?: boolean;
 		citationOverride?: { citationCount: number; references: PaperSourceId[] } | 'unavailable';
+		// Bulk-prefetched arXiv content (research.md Decision 4, corrected): when
+		// provided, refreshOne skips its own fetchArxivEntryById call and uses this
+		// result instead — 'notFound' mirrors an absent single-lookup entry, 'error'
+		// surfaces a failed batch chunk for this paper without silently retrying it as
+		// a per-paper call (which would reintroduce the very storm batching avoids).
+		contentOverride?: { status: 'found'; entry: Element } | { status: 'notFound' } | { status: 'error'; message: string };
 	},
 ): Promise<RefreshOutcome> {
 	// Step 0: a sourceId absent from the store fails immediately, before any provider
@@ -52,15 +58,29 @@ export async function refreshOne(
 	try {
 		// Step 2: arXiv content re-fetch. A thrown/timed-out call is FR-005's "existing
 		// data kept, user informed" -> 'error'; a missing entry is 'notFound'. Either way
-		// nothing is written, so the stored pairing is untouched.
+		// nothing is written, so the stored pairing is untouched. A bulk-supplied
+		// contentOverride (fetchArxivEntriesByIds batch result) replaces this call entirely
+		// rather than falling back to it, so bulk mode never re-issues a per-paper arXiv
+		// HTTP request.
 		let entry: Element | undefined;
-		try {
-			entry = await fetchArxivEntryById(baseId(sourceId));
-		} catch (err) {
-			return { status: 'error', message: messageOf(err) };
-		}
-		if (entry === undefined) {
-			return { status: 'notFound' };
+		const contentOverride = options?.contentOverride;
+		if (contentOverride !== undefined) {
+			if (contentOverride.status === 'notFound') {
+				return { status: 'notFound' };
+			}
+			if (contentOverride.status === 'error') {
+				return { status: 'error', message: contentOverride.message };
+			}
+			entry = contentOverride.entry;
+		} else {
+			try {
+				entry = await fetchArxivEntryById(baseId(sourceId));
+			} catch (err) {
+				return { status: 'error', message: messageOf(err) };
+			}
+			if (entry === undefined) {
+				return { status: 'notFound' };
+			}
 		}
 		const candidate = parseArxivEntry(entry);
 		if (candidate === undefined) {

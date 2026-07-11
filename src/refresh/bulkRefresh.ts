@@ -2,21 +2,19 @@ import type { Paper, PaperSourceId } from '../models/paper';
 import type { PaperStore } from '../persistence/store';
 import type { ConcurrencyGuard } from './concurrencyGuard';
 import type { BulkRefreshResult, EmbeddingConfig, RefreshHooks } from './types';
+import { fetchArxivEntriesByIds } from '../collection/arxivClient';
 import { fetchSemanticScholarBatch } from '../collection/semanticScholarClient';
 import { parseSemanticScholarPaper, toPaperSourceId } from '../collection/semanticScholarParser';
 import { refreshOne } from './refreshOne';
 
-// Bulk arXiv content-refetch pacing (FR-015, research.md Decision 4): a short fixed
-// delay by default, doubling only after an observed per-paper failure (never
-// pre-emptively), capped at arXiv's own 3 s baseline, and reset after a success.
-const BULK_BASE_DELAY_MS = 300;
-const BULK_MAX_DELAY_MS = 3_000;
+// A run this large is confirmed with the caller first (when a confirmLargeRun hook is
+// supplied) before any provider call is made — even with both provider lookups now
+// batched (FR-015/FR-018), a run of this size still means hundreds of individual
+// per-paper writes (embedding recompute, store I/O) and is worth a heads-up.
+const BULK_LARGE_RUN_THRESHOLD = 300;
 
 type CitationOverride = { citationCount: number; references: PaperSourceId[] } | 'unavailable';
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+type ContentOverride = { status: 'found'; entry: Element } | { status: 'notFound' } | { status: 'error'; message: string };
 
 function baseId(sourceId: PaperSourceId): string {
 	return sourceId.slice(sourceId.indexOf(':') + 1);
@@ -35,7 +33,12 @@ export async function runBulkRefresh(
 	getSemanticScholarApiKey: () => string | undefined,
 	getEmbeddingConfig: () => EmbeddingConfig,
 	onProgress?: (done: number, total: number) => void,
-): Promise<BulkRefreshResult | { status: 'alreadyRunning' }> {
+	// Asked once, before any provider call, only when the matched set exceeds
+	// BULK_LARGE_RUN_THRESHOLD. Absent (008 not yet wired) or resolving true proceeds
+	// unconditionally, preserving today's behavior; resolving false declines the run
+	// with no provider call made and no papers touched.
+	confirmLargeRun?: (matchedCount: number) => Promise<boolean>,
+): Promise<BulkRefreshResult | { status: 'alreadyRunning' } | { status: 'declinedLargeRun' }> {
 	// FR-012: a second bulk run must not start while one is active.
 	if (!guard.claimBulk()) {
 		return { status: 'alreadyRunning' };
@@ -54,32 +57,61 @@ export async function runBulkRefresh(
 			}
 		}
 
+		if (matched.length > BULK_LARGE_RUN_THRESHOLD && confirmLargeRun !== undefined) {
+			const proceed = await confirmLargeRun(matched.length);
+			if (!proceed) {
+				return { status: 'declinedLargeRun' };
+			}
+		}
+
 		// FR-018: one batched citation lookup for the whole matched set (chunked to 500
 		// ids/request inside the client), never one call per paper. Missing/failed
 		// elements become 'unavailable' so their citation fields carry through (FR-021).
-		const overrides = new Map<PaperSourceId, CitationOverride>();
-		const batch = await fetchSemanticScholarBatch(
+		const citationOverrides = new Map<PaperSourceId, CitationOverride>();
+		const s2Batch = await fetchSemanticScholarBatch(
 			matched.map((paper) => baseId(paper.sourceId)),
 			getSemanticScholarApiKey(),
 		);
 		for (let index = 0; index < matched.length; index += 1) {
-			const element = batch[index];
+			const element = s2Batch[index];
 			if (element !== undefined && element !== null && 'body' in element) {
 				const parsed = parseSemanticScholarPaper(element.body);
-				overrides.set(matched[index]!.sourceId, {
+				citationOverrides.set(matched[index]!.sourceId, {
 					citationCount: parsed.citationCount,
 					references: parsed.references.map(toPaperSourceId),
 				});
 			} else {
-				overrides.set(matched[index]!.sourceId, 'unavailable');
+				citationOverrides.set(matched[index]!.sourceId, 'unavailable');
 			}
 		}
 
-		// Paced sequential per-paper loop (FR-010/FR-015). refreshOne does the actual work
-		// for each paper, given its pre-fetched citation override.
+		// FR-015 (corrected, research.md Decision 4): one batched arXiv content re-fetch
+		// for the whole matched set — arXiv's `id_list=` accepts a comma-separated list,
+		// so this is the same batch-lookup treatment already given to the Semantic
+		// Scholar citation lookup above, not one HTTP call per paper. A chunk that fails
+		// (throttled/malformed) surfaces as a per-paper 'error' override rather than
+		// retrying individually, which would reintroduce the storm batching avoids.
+		const contentOverrides = new Map<PaperSourceId, ContentOverride>();
+		const { found, failedIds } = await fetchArxivEntriesByIds(matched.map((paper) => baseId(paper.sourceId)));
+		for (const paper of matched) {
+			const id = baseId(paper.sourceId);
+			if (failedIds.has(id)) {
+				contentOverrides.set(paper.sourceId, { status: 'error', message: 'arXiv batch content lookup failed for this paper' });
+				continue;
+			}
+			const entry = found.get(id);
+			if (entry === undefined) {
+				contentOverrides.set(paper.sourceId, { status: 'notFound' });
+				continue;
+			}
+			contentOverrides.set(paper.sourceId, { status: 'found', entry });
+		}
+
+		// Sequential per-paper loop (FR-010). Both provider lookups are already batched
+		// above, so each iteration here does purely local work (apply overrides, recompute
+		// embedding, persist) — no per-paper network pacing is needed.
 		const failures: { sourceId: PaperSourceId; reason: string }[] = [];
 		let done = 0;
-		let pacing = BULK_BASE_DELAY_MS;
 
 		for (const paper of matched) {
 			const sourceId = paper.sourceId;
@@ -95,7 +127,6 @@ export async function runBulkRefresh(
 				continue;
 			}
 
-			let status: string;
 			try {
 				const outcome = await refreshOne(
 					store,
@@ -105,9 +136,12 @@ export async function runBulkRefresh(
 					isSummarizationEnabled,
 					getSemanticScholarApiKey,
 					getEmbeddingConfig,
-					{ alreadyClaimed: true, citationOverride: overrides.get(sourceId) },
+					{
+						alreadyClaimed: true,
+						citationOverride: citationOverrides.get(sourceId),
+						contentOverride: contentOverrides.get(sourceId),
+					},
 				);
-				status = outcome.status;
 				// FR-011: a per-paper failure is recorded and summarized, never aborts.
 				if (outcome.status === 'notFound') {
 					failures.push({ sourceId, reason: 'notFound' });
@@ -121,17 +155,12 @@ export async function runBulkRefresh(
 			done += 1;
 			onProgress?.(done, matched.length);
 
-			// FR-015: back off only after an actual failure; reset after a success.
-			pacing = status === 'error' ? Math.min(pacing * 2, BULK_MAX_DELAY_MS) : BULK_BASE_DELAY_MS;
-
 			// FR-022: cancellation is checked AFTER the just-finished paper settled and
 			// BEFORE the next one starts, so the in-flight paper is never interrupted
 			// mid-write and no further paper is touched (research.md Decision 12).
 			if (guard.isBulkCancelRequested()) {
 				break;
 			}
-
-			await delay(pacing);
 		}
 
 		return { matchedCount: done, failures };
