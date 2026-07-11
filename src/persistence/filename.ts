@@ -1,4 +1,4 @@
-import type { PaperSourceId } from '../models/paper';
+import type { Paper, PaperSourceId } from '../models/paper';
 
 // Illegal/reserved filename characters across Windows/macOS/Linux, plus control
 // chars. The ':' in a sourceId (e.g. 'arxiv:2401.12345') is the main hit.
@@ -42,23 +42,12 @@ export function fileStem(sourceId: PaperSourceId, taken: ReadonlySet<string>): s
 	return disambiguate(sanitizeStem(sourceId), taken);
 }
 
-// Human-readable note filename (FR-007): the paper's TITLE (NFC-normalized, illegal/
-// control chars dropped, internal whitespace — including arXiv's line-wrapped titles —
-// collapsed, length-capped) followed by the paper's provider-local id in parentheses,
-// e.g. 'Attention Is All You Need (2401.12345)'. The id suffix keeps the name injective
-// and traceable even when two papers share a (truncated) title.
-//
-// The filename is display-facing ONLY: the record/note pairing keys on the content
-// sourceId (frontmatter pg3d_sourceId), never the filename (FR-009), so a title-based
-// name is rename-safe. The stem is fixed at creation and reused on later updates
-// (store.updatePath), so a refresh that revises the title does NOT rename the files and
-// never breaks a link the user made to them. Falls back to the sourceId stem when the
-// title sanitizes to empty.
-export function noteStem(
-	title: string,
-	sourceId: PaperSourceId,
-	taken: ReadonlySet<string>,
-): string {
+// Bare, single-segment note name: the paper's TITLE (NFC-normalized, illegal/control
+// chars dropped, whitespace — incl. arXiv's line-wrapped titles — collapsed, length-
+// capped) + its provider-local id in parentheses, e.g. 'Attention Is All You Need
+// (2401.12345)'; falls back to the sourceId sanitization for an untitled paper. Never
+// contains a path separator (the year/month folder is added by noteStem).
+function baseNoteName(title: string, sourceId: PaperSourceId): string {
 	const cleanTitle = title
 		.normalize('NFC')
 		.replace(ILLEGAL_CHARS, ' ')
@@ -67,8 +56,33 @@ export function noteStem(
 		.slice(0, MAX_TITLE_LENGTH)
 		.replace(/[ .]+$/g, '');
 	if (cleanTitle.length === 0) {
-		return fileStem(sourceId, taken);
+		return sanitizeStem(sourceId);
 	}
 	const localId = sourceId.slice(sourceId.indexOf(':') + 1);
-	return disambiguate(sanitizeStem(`${cleanTitle} (${localId})`), taken);
+	return sanitizeStem(`${cleanTitle} (${localId})`);
+}
+
+// Year/month folder for a paper (FR-007, amended 2026-07-11): `<YYYY>/<MM>`. The YEAR is
+// `publicationYear` (always present on a valid Paper); the MONTH comes from
+// `publicationDate` (001 FR-023), or `unknown` when only a bare year is known.
+export function publicationDir(paper: Pick<Paper, 'publicationYear' | 'publicationDate'>): string {
+	const month =
+		paper.publicationDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(paper.publicationDate)
+			? paper.publicationDate.slice(5, 7)
+			: 'unknown';
+	return `${paper.publicationYear}/${month}`;
+}
+
+// Full relative note stem shared by the `.json`/`.md` pair — the year/month folder prefix
+// plus the human-readable title-based name: `<YYYY>/<MM>/<title (id)>`, e.g.
+// `2024/03/Attention Is All You Need (2401.12345)`. Display-facing only: pairing keys on
+// the content sourceId, never the path (FR-009), so it is rename-safe; it is fixed at
+// creation and reused on updates, so a later title/content revision never re-folders or
+// renames. Injective via the parenthesized id (distinct papers never collide even at an
+// identical title within the same month), with a deterministic disambiguator on any clash.
+export function noteStem(
+	paper: Pick<Paper, 'title' | 'sourceId' | 'publicationYear' | 'publicationDate'>,
+	taken: ReadonlySet<string>,
+): string {
+	return disambiguate(`${publicationDir(paper)}/${baseNoteName(paper.title, paper.sourceId)}`, taken);
 }

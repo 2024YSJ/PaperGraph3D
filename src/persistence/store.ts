@@ -168,9 +168,9 @@ export class PaperStore {
 	}
 
 	private async createPath(input: PersistInput): Promise<void> {
-		// Human-readable, title-based filename (FR-007). Rename-safe: pairing keys on the
-		// content sourceId, not the filename (FR-009).
-		const stem = noteStem(input.paper.title, input.paper.sourceId, this.index.usedStems());
+		// Human-readable, year/month-foldered relative stem `<YYYY>/<MM>/<title (id)>`
+		// (FR-007). Rename-safe: pairing keys on the content sourceId, not the path (FR-009).
+		const stem = noteStem(input.paper, this.index.usedStems());
 		const record = wrap(input);
 		// Record durably first so an uncontrolled crash leaves a record the note can
 		// be rebuilt from rather than a note with no record (FR-021).
