@@ -38,10 +38,16 @@ export async function requestUrl(param: RequestUrlParam): Promise<RequestUrlResp
 	if (url.includes('export.arxiv.org')) {
 		a.counts.arxiv += 1;
 		const m = /id_list=([^&]+)/.exec(url);
-		const id = m ? decodeURIComponent(m[1]!) : '';
-		const entry = a.arxiv.get(id);
-		if (entry === 'throw') throw new Error(`simulated arXiv failure for ${id}`);
-		const entries = entry !== undefined && entry !== 'notfound' ? [entry] : [];
+		const raw = m ? decodeURIComponent(m[1]!) : '';
+		// id_list is comma-separated for 005's batched bulk-refresh content lookup
+		// (research.md Decision 4, corrected), or a single id for the single-paper path.
+		const ids = raw.split(',');
+		if (ids.some((id) => a.arxiv.get(id) === 'throw')) {
+			throw new Error(`simulated arXiv failure for ${raw}`);
+		}
+		const entries = ids
+			.map((id) => a.arxiv.get(id))
+			.filter((e): e is EntrySpec => e !== undefined && e !== 'notfound');
 		return { status: 200, text: JSON.stringify({ entries }), json: undefined };
 	}
 	if (url.includes('api.semanticscholar.org')) {

@@ -50,6 +50,7 @@ import { parseNote } from '../../src/persistence/note';
 // 005 — refresh
 import { createConcurrencyGuard } from '../../src/refresh/concurrencyGuard';
 import { refreshOne } from '../../src/refresh/refreshOne';
+import { runBulkRefresh } from '../../src/refresh/bulkRefresh';
 
 type Status = 'PASS' | 'FAIL' | 'SKIP';
 interface Result { id: string; desc: string; status: Status; note?: string }
@@ -216,6 +217,63 @@ async function main(): Promise<void> {
 		assert(out.status === 'notFound', 'absent sourceId → notFound');
 		assert(a.counts.arxiv === 0 && a.counts.s2single === 0, 'no provider call crossed the seam');
 		assert((await fs.list()).length === before, 'store untouched');
+	});
+
+	// ============ Seam 002/003 → 005 (bulk) ============
+	// research.md Decision 4 (corrected 2026-07-11): a bulk refresh batches BOTH its
+	// Semantic Scholar citation lookup (FR-018) and its arXiv content re-fetch (FR-015)
+	// into one request each, then applies each result through 003's existing
+	// record/note pairing exactly as a single refresh would. This exercises that path
+	// against real 002 promotion/embedding + real 003 persistence, not just refreshOne.
+	await check('C10', '[002/003→005 bulk] runBulkRefresh batches arXiv content + S2 citations across multiple 002/003-real papers, applies each through 003, leaves out-of-window papers and user notes untouched', async () => {
+		const a = resetApi(); const { store, fs } = newStore();
+		const SID_A = 'arxiv:2301.88001' as PaperSourceId;
+		const SID_B = 'arxiv:2301.88002' as PaperSourceId;
+		const SID_OLD = 'arxiv:2301.88003' as PaperSourceId; // outside the FR-009 last-year window
+
+		// Seed all three through the REAL 002 promote() + baseline embedding (as C3/C4 do),
+		// not a hand-built Paper, so this case shares the same 001/002 artifact shape.
+		for (const [sid, year] of [[SID_A, YEAR], [SID_B, YEAR], [SID_OLD, YEAR - 5]] as const) {
+			const p = promote(candidate({ sourceId: sid, publicationYear: year }))!;
+			const emb = computeBaselineEmbedding(p.title, p.abstract);
+			p.embedding = emb.embedding; p.embeddingModel = emb.embeddingModel; p.embeddingSource = emb.embeddingSource;
+			await store.upsert({ paper: p });
+		}
+		const mdA = await findMd(fs, SID_A);
+		await fs.write(mdA, (await fs.read(mdA))! + 'USER BULK NOTE\n');
+
+		// Only the two in-window papers get arXiv/S2 fixtures — SID_OLD must never be queried.
+		a.arxiv.set(baseOf(SID_A), arxivEntry(baseOf(SID_A), { summary: 'Bulk Revised Abstract A' }));
+		a.arxiv.set(baseOf(SID_B), arxivEntry(baseOf(SID_B)));
+		a.s2.set(baseOf(SID_A), { citationCount: 12, references: [] });
+		a.s2.set(baseOf(SID_B), { citationCount: 5, references: [] });
+
+		const res = await runBulkRefresh(store, createConcurrencyGuard(), {}, () => false, () => undefined, () => ({ provider: 'bundled' }));
+		assert(!('status' in res), 'bulk returned a normal result');
+		if (!('status' in res)) {
+			assert(res.matchedCount === 2, `only the two in-window papers matched (got ${res.matchedCount})`);
+			assert(res.failures.length === 0, 'no failures');
+		}
+
+		// Both provider lookups batched into ONE request each for the whole matched set
+		// (FR-015/FR-018), never one per paper.
+		assert(a.counts.arxiv === 1, `arXiv content batched into one call for A+B (got ${a.counts.arxiv})`);
+		assert(a.counts.s2batch === 1 && a.counts.s2single === 0, `citations via one S2 batch call (got batch=${a.counts.s2batch}, single=${a.counts.s2single})`);
+
+		// Each in-window paper's refresh landed correctly through 003, with 002's real
+		// embedding recomputation for the one whose content actually changed.
+		const afterA = (await store.get(SID_A))!;
+		assert(afterA.abstract === 'Bulk Revised Abstract A' && afterA.citationCount === 12, "A's content+citations applied via 003");
+		assert(eqArr(afterA.embedding, computeBaselineEmbedding('Head Title', 'Bulk Revised Abstract A').embedding), "A's embedding recomputed via 002's real computeBaselineEmbedding");
+		const afterB = (await store.get(SID_B))!;
+		assert(afterB.citationCount === 5, "B's citations applied via 003");
+
+		// SID_OLD (outside the FR-009 window) was never touched by the bulk run.
+		const afterOld = (await store.get(SID_OLD))!;
+		assert(afterOld.citationCount === 0 && afterOld.citationsKnown === false, 'out-of-window paper untouched by the bulk run');
+
+		// User-owned note content survives the bulk pass across the 003↔005 seam.
+		assert((await fs.read(mdA))!.includes('USER BULK NOTE'), "A's user note preserved across the bulk 003↔005 seam");
 	});
 
 	// ============ Whole-system end-to-end ============

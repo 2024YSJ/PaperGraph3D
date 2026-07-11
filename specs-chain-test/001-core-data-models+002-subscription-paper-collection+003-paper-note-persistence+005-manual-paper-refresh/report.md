@@ -5,11 +5,11 @@
 - **Source branch**: `develop-feature/005-manual-paper-refresh`
 - **Date**: 2026-07-11
 - **`tsc --noEmit`**: PASS (src/ type-checks)
-- **Result**: **10 passed / 0 failed / 1 skipped**
+- **Result**: **11 passed / 0 failed / 1 skipped**
 
 ## Verification method
 
-Derived cross-spec scenarios at both required levels — per-seam (`C1`–`C9`) and
+Derived cross-spec scenarios at both required levels — per-seam (`C1`–`C10`) and
 whole-system end-to-end (`E1`, `E2`) — and ran them against the **real** `src/` exports of
 all four specs via esbuild + node (the repo's no-test-runner convention). Each chain
 scenario builds an artifact with the upstream spec's real API and consumes it with the
@@ -43,6 +43,7 @@ npx esbuild "specs-chain-test/$CID/$CID.chain-test.ts" --bundle --platform=node 
 | 002/001 → 003 | promoted `Paper` wrapped into the record + note pairing; note frontmatter mirrors the shared subset only | **Exercised** — C4, C5 |
 | 002 → 005 | refresh recomputes embedding via 002's `computeBaselineEmbedding`; applies citations via 002's `parseSemanticScholarPaper`/`toPaperSourceId` (version-stripped) | **Exercised** — C6, C7 |
 | 003 → 005 | refresh reads via `PaperStore.get`, writes via `PaperStore.upsert`, preserving the user note body; absent sourceId short-circuits with no provider call/write | **Exercised** — C8, C9 |
+| 002/003 → 005 (bulk) | `runBulkRefresh` batches both the arXiv content re-fetch (FR-015, corrected 2026-07-11) and the Semantic Scholar citation lookup (FR-018) into one request each for the whole matched set, then applies each result through 003's real pairing; the FR-009 last-year window still excludes older papers | **Exercised** — C10 |
 
 All seams in this chain are implemented; there are **no SKIP-for-missing-downstream**
 links. (004 summarization is not part of this chain and is injected as a hook that both
@@ -91,6 +92,7 @@ exercised on the bundled canonical provider by `E1`.
 | C7 | [002→005] refresh applies citations via 002 parser | PASS | version suffix stripped across the seam |
 | C8 | [003→005] refresh reads/writes via 003 store; user body preserved | PASS | |
 | C9 | [003→005 negative] absent sourceId: no provider call, no write | PASS | |
+| C10 | [002/003→005 bulk] batched arXiv+S2 across multiple real 002/003 papers, out-of-window untouched, user note preserved | PASS | one arXiv call + one S2 batch call cover both in-window papers |
 | E1 | [system] candidate → 002 pipeline → 003 → 005 → 003 stays 001-valid | PASS | whole-chain emergent invariants |
 | E2 | [system] LLM-canonical embedding threaded through the chain | SKIP | 002's llm upgrade is a 004-owned stub (returns undefined) |
 
@@ -126,8 +128,9 @@ No behavior asserted by this suite contradicts a stated cross-spec integration i
 [PASS] C7 — [002→005] a single refresh applies citations parsed by 002's parseSemanticScholarPaper/toPaperSourceId
 [PASS] C8 — [003→005] refresh reads via 003 get() and writes via 003 upsert(); the user-owned note body is preserved
 [PASS] C9 — [003→005 negative] refresh of a sourceId absent from the 003 store makes no provider call and writes nothing
+[PASS] C10 — [002/003→005 bulk] runBulkRefresh batches arXiv content + S2 citations across multiple 002/003-real papers, applies each through 003, leaves out-of-window papers and user notes untouched
 [PASS] E1 — [system] candidate → REAL 002 pipeline → 003 store → 005 refresh → 003 read-back stays 001-valid throughout
 [SKIP] E2 — [system] LLM-canonical embedding threaded through collection + refresh (the 004-owned LLM embedding provider is a stub in 002 (upgradeEmbedding returns undefined for llm); the whole chain is exercised on the bundled canonical provider by E1)
 
-Summary: 10 passed, 0 failed, 1 skipped
+Summary: 11 passed, 0 failed, 1 skipped
 ```
