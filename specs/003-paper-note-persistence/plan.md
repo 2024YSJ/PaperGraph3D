@@ -73,7 +73,7 @@ src/
 └── persistence/             # NEW — this feature's entire footprint
     ├── record.ts             # PaperRecord (wrapped superset), schemaVersion, wrap/unwrap, migrate()
     ├── note.ts               # note serialize/parse: frontmatter + managed body block + user body
-    ├── filename.ts           # injective sourceId -> filename-stem sanitization
+    ├── filename.ts           # title-based note stem (noteStem) + sourceId-sanitized fallback (fileStem), both injective
     ├── index.ts              # in-memory Record Index (lightweight entries; no embedding vectors)
     ├── reconcile.ts          # orphan/tombstone reconciliation, JSON-authoritative repair
     ├── store.ts              # PaperStore: load/upsert/get/has/all/delete + per-paper write serialization

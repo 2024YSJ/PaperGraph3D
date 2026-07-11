@@ -3,7 +3,7 @@ import type { FileStore } from './filestore';
 import { RecordIndex, entryFromRecord } from './index';
 import { migrate, unwrap, wrap, type PaperRecord, type PersistInput } from './record';
 import { parseNote, renderNote } from './note';
-import { fileStem } from './filename';
+import { noteStem } from './filename';
 import { classify, stemOf, tombstoneName } from './reconcile';
 
 export type { PersistInput } from './record';
@@ -168,7 +168,9 @@ export class PaperStore {
 	}
 
 	private async createPath(input: PersistInput): Promise<void> {
-		const stem = fileStem(input.paper.sourceId, this.index.usedStems());
+		// Human-readable, title-based filename (FR-007). Rename-safe: pairing keys on the
+		// content sourceId, not the filename (FR-009).
+		const stem = noteStem(input.paper.title, input.paper.sourceId, this.index.usedStems());
 		const record = wrap(input);
 		// Record durably first so an uncontrolled crash leaves a record the note can
 		// be rebuilt from rather than a note with no record (FR-021).

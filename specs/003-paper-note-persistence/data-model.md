@@ -41,7 +41,7 @@ Source: `spec.md` (Key Entities, Functional Requirements, Clarifications) and `r
 | Field | Type | Note |
 |---|---|---|
 | `sourceId` | `PaperSourceId` | Key. |
-| `fileStem` | `string` | Sanitized filename stem shared by the `.json`/`.md` pair (FR-007). |
+| `fileStem` | `string` | Filename stem shared by the `.json`/`.md` pair — the human-readable title-based stem (`noteStem`), or the sourceId-sanitized fallback for an untitled paper (FR-007). |
 | `title`, `authors`, `publicationYear`, `citationCount`, `readState` | mirrored subset | Serve fast reads without disk. |
 | `embeddingModel` | `string \| null` | Lightweight provenance. |
 | `embeddingPending` | `boolean` | `true` when the stored embedding is `null`. |

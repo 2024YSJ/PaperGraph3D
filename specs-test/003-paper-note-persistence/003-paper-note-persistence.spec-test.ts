@@ -73,7 +73,7 @@ async function main() {
 		await store.upsert(input(paper(1)));
 		const files = (await fs.list()).sort();
 		assert(files.length === 2, `expected 2 files, got ${files.length}`);
-		assert(files[0] === 'arxiv_1.json' && files[1] === 'arxiv_1.md', `unexpected filenames: ${files.join()}`);
+		assert(files[0] === 'Title 1 (1).json' && files[1] === 'Title 1 (1).md', `unexpected filenames: ${files.join()}`);
 	});
 
 	await check('US1.2', "note managed region mirrors the record's shared fields (FR-002 subset)", async () => {
@@ -81,7 +81,7 @@ async function main() {
 		const store = new PaperStore(fs);
 		const p = paper(2, { authors: ['Solo Author'], citationCount: 7 });
 		await store.upsert(input(p));
-		const fm = parseNote((await fs.read('arxiv_2.md')) ?? '').frontmatter;
+		const fm = parseNote((await fs.read('Title 2 (2).md')) ?? '').frontmatter;
 		assert(fm.title === p.title, 'title not mirrored');
 		assert(Array.isArray(fm.authors) && (fm.authors as string[])[0] === 'Solo Author', 'authors not mirrored');
 		assert(fm.publicationYear === 2020, 'publicationYear not mirrored');
@@ -125,11 +125,11 @@ async function main() {
 		const fs = new InMemoryFileStore();
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(5)));
-		const original = (await fs.read('arxiv_5.md')) ?? '';
+		const original = (await fs.read('Title 5 (5).md')) ?? '';
 		const body = 'Line one.\nLine two — my notes.';
-		await fs.write('arxiv_5.md', original + body);
+		await fs.write('Title 5 (5).md', original + body);
 		await store.upsert(input(paper(5, { citationCount: 12 })));
-		const after = (await fs.read('arxiv_5.md')) ?? '';
+		const after = (await fs.read('Title 5 (5).md')) ?? '';
 		assert(parseNote(after).userBody === body, 'user body was altered');
 		assert(after.includes('citationCount: 12'), 'managed region did not update');
 	});
@@ -139,7 +139,7 @@ async function main() {
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(6)));
 		await store.upsert(input(paper(6)));
-		assert((await fs.list()).sort().join() === 'arxiv_6.json,arxiv_6.md', 'pairing not consistent / duplicated');
+		assert((await fs.list()).sort().join() === 'Title 6 (6).json,Title 6 (6).md', 'pairing not consistent / duplicated');
 	});
 
 	// ---- US3: stays inside the designated folder ----------------------------
@@ -188,10 +188,10 @@ async function main() {
 		const fs = new InMemoryFileStore();
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(10, { citationCount: 5 })));
-		const files = (await fs.list()).filter((f) => f.startsWith('arxiv_10'));
+		const files = (await fs.list()).filter((f) => f.startsWith('Title 10'));
 		assert(files.length === 2, 'not exactly one pair');
-		const fm = parseNote((await fs.read('arxiv_10.md')) ?? '').frontmatter;
-		const rec = JSON.parse((await fs.read('arxiv_10.json')) ?? '{}');
+		const fm = parseNote((await fs.read('Title 10 (10).md')) ?? '').frontmatter;
+		const rec = JSON.parse((await fs.read('Title 10 (10).json')) ?? '{}');
 		assert(fm.citationCount === rec.paper.citationCount, 'managed field disagrees with record');
 	});
 
@@ -200,9 +200,9 @@ async function main() {
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(11)));
 		const body = '## My notes\n\nByte-for-byte 한글 テスト.';
-		await fs.write('arxiv_11.md', ((await fs.read('arxiv_11.md')) ?? '') + body);
+		await fs.write('Title 11 (11).md', ((await fs.read('Title 11 (11).md')) ?? '') + body);
 		await store.upsert(input(paper(11, { title: 'Renamed Title' })));
-		assert(parseNote((await fs.read('arxiv_11.md')) ?? '').userBody === body, 'hand-written body changed');
+		assert(parseNote((await fs.read('Title 11 (11).md')) ?? '').userBody === body, 'hand-written body changed');
 	});
 
 	await check('SC-003', 're-collecting the same paper yields zero duplicate notes', async () => {
@@ -242,7 +242,7 @@ async function main() {
 		const ms = Date.now() - t0;
 		assert(ms < 2000, `index build took ${ms}ms (>=2000)`);
 		// The record JSON carries the embedding; the index metadata must not.
-		const rec = JSON.parse((await fs.read('arxiv_20000.json')) ?? '{}');
+		const rec = JSON.parse((await fs.read('Title 20000 (20000).json')) ?? '{}');
 		assert('embedding' in rec.paper, 'record should carry the embedding on disk');
 	});
 	skip('SC-006-ui', 'index build runs off the main render path without blocking the UI', 'thread/UI-blocking behavior is an 008 wiring concern, not observable in a node harness');
@@ -252,11 +252,11 @@ async function main() {
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(15, { embedding: [0.1, 0.2], embeddingModel: 'bge', embeddingSource: 'local' }), { summary: 'gen' }));
 		await store.upsert(input(paper(15, { citationCount: 50 }))); // no summary, pending (null) embedding
-		const rec = JSON.parse((await fs.read('arxiv_15.json')) ?? '{}');
+		const rec = JSON.parse((await fs.read('Title 15 (15).json')) ?? '{}');
 		assert(rec.summary === 'gen', 'summary was clobbered');
 		assert(JSON.stringify(rec.paper.embedding) === '[0.1,0.2]', 'stored embedding was clobbered by pending null');
 		await store.upsert(input(paper(15, { embedding: [9], embeddingModel: 'llm', embeddingSource: 'llm' })));
-		const rec2 = JSON.parse((await fs.read('arxiv_15.json')) ?? '{}');
+		const rec2 = JSON.parse((await fs.read('Title 15 (15).json')) ?? '{}');
 		assert(JSON.stringify(rec2.paper.embedding) === '[9]' && rec2.paper.embeddingSource === 'llm', 'non-null embedding did not replace');
 	});
 
@@ -264,9 +264,9 @@ async function main() {
 		const fs = new InMemoryFileStore();
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(16, { embedding: [0.42, 0.99], embeddingModel: 'bge-small', embeddingSource: 'local' })));
-		const rec = JSON.parse((await fs.read('arxiv_16.json')) ?? '{}');
+		const rec = JSON.parse((await fs.read('Title 16 (16).json')) ?? '{}');
 		assert(Array.isArray(rec.paper.embedding) && rec.paper.embeddingModel === 'bge-small' && rec.paper.embeddingSource === 'local', 'record missing embedding metadata');
-		const md = (await fs.read('arxiv_16.md')) ?? '';
+		const md = (await fs.read('Title 16 (16).md')) ?? '';
 		assert(!md.includes('0.42') && !md.toLowerCase().includes('embedding'), 'embedding leaked into the note');
 	});
 
@@ -288,10 +288,10 @@ async function main() {
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(18, { citationCount: 4 })));
 		const body = 'user body kept';
-		const tampered = ((await fs.read('arxiv_18.md')) ?? '').replace('citationCount: 4', 'citationCount: 999') + body;
-		await fs.write('arxiv_18.md', tampered);
+		const tampered = ((await fs.read('Title 18 (18).md')) ?? '').replace('citationCount: 4', 'citationCount: 999') + body;
+		await fs.write('Title 18 (18).md', tampered);
 		await store.upsert(input(paper(18, { citationCount: 4 })));
-		const after = (await fs.read('arxiv_18.md')) ?? '';
+		const after = (await fs.read('Title 18 (18).md')) ?? '';
 		assert(after.includes('citationCount: 4') && !after.includes('citationCount: 999'), 'managed field not rebuilt from record');
 		assert(parseNote(after).userBody === body, 'user body altered while rebuilding managed region');
 	});
@@ -327,9 +327,9 @@ async function main() {
 		const fs = new InMemoryFileStore();
 		const store = new PaperStore(fs);
 		await store.upsert(input(paper(22)));
-		await fs.write('arxiv_22.md', ((await fs.read('arxiv_22.md')) ?? '') + 'precious hand-written body');
+		await fs.write('Title 22 (22).md', ((await fs.read('Title 22 (22).md')) ?? '') + 'precious hand-written body');
 		await store.delete('arxiv:22' as Paper['sourceId']);
-		assert(!(await fs.exists('arxiv_22.md')) && !(await fs.exists('arxiv_22.json')), 'delete did not remove the pair');
+		assert(!(await fs.exists('Title 22 (22).md')) && !(await fs.exists('Title 22 (22).json')), 'delete did not remove the pair');
 	});
 
 	await check('EC-7', 'a storage-folder change leaves old pairings and informs the user (FR-018)', async () => {

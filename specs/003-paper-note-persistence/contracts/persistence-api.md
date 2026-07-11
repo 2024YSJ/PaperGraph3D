@@ -108,10 +108,12 @@ export function migrate(raw: unknown): PaperRecord; // pending-embedding normali
 ```ts
 export function renderNote(record: PaperRecord, previousUserBody: string): string;
 export function parseNote(text: string): { frontmatter: Record<string, unknown>; managedBody: string; userBody: string };
-export function fileStem(sourceId: PaperSourceId, taken: ReadonlySet<string>): string; // injective
+export function noteStem(title: string, sourceId: PaperSourceId, taken: ReadonlySet<string>): string; // title-based, injective (FR-007)
+export function fileStem(sourceId: PaperSourceId, taken: ReadonlySet<string>): string; // sourceId-based fallback, injective
 ```
 
 **Behavior guarantees**:
 - `renderNote` writes only the frontmatter (mirrored subset) + managed body block; `previousUserBody` is appended verbatim (FR-005). The embedding never appears in any region (FR-022/SC-008).
 - `parseNote` splits a note into the three regions without parsing the user body as state (FR-009/FR-010).
-- `fileStem` is injective given the set of already-`taken` stems: two different `sourceId`s never collide (FR-007), appending a deterministic disambiguator when sanitization would clash.
+- `noteStem` (used by `store.createPath`) derives a human-readable stem from the paper's **title** — normalized/sanitized/length-capped — with the provider-local id in parentheses (e.g. `Attention Is All You Need (2401.12345)`), so it is injective (the id suffix differs per paper) and rename-safe (FR-007/FR-009). It falls back to `fileStem` when the title sanitizes to empty.
+- `fileStem` is the sourceId-based fallback stem: injective given the set of already-`taken` stems, appending a deterministic disambiguator when two distinct `sourceId`s sanitize alike.
