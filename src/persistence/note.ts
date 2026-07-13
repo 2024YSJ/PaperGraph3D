@@ -16,8 +16,9 @@ function quote(value: string): string {
 	return JSON.stringify(value);
 }
 
-// FR-002 mirrored subset only. Raw references / schemaVersion / timestamps /
-// embedding are never written here.
+// FR-002 mirrored subset. `schemaVersion` / timestamps / the embedding vector stay in
+// the JSON record only; the outbound `references` (the source ids of the papers this
+// paper cites) ARE mirrored here as a readable list (amended 2026-07-11).
 function renderFrontmatter(record: PaperRecord): string {
 	const p = record.paper;
 	const lines: string[] = [`title: ${quote(p.title)}`];
@@ -30,7 +31,29 @@ function renderFrontmatter(record: PaperRecord): string {
 		}
 	}
 	lines.push(`publicationYear: ${p.publicationYear}`);
+	// Month/day precision when known (001 publicationDate); omitted for a year-only paper.
+	if (p.publicationDate !== undefined) {
+		lines.push(`publicationDate: ${quote(p.publicationDate)}`);
+	}
 	lines.push(`citationCount: ${p.citationCount}`);
+	// Outbound citations — the source ids of the papers this paper cites (001 references).
+	// Three honest states, keyed on `citationsKnown` (001/002 FR-018), so an empty list is
+	// never confused with "not looked up yet":
+	//   - not confirmed by a citation-aware provider (un-enriched, or a failed/pending
+	//     enrichment) -> `references: null` ("unknown"; the note is only (re)written when an
+	//     operation settles, so an in-flight check never shows a half-state);
+	//   - confirmed, cites nothing resolvable -> `references: []`;
+	//   - confirmed with citations -> a readable YAML list of source ids.
+	if (!p.citationsKnown) {
+		lines.push('references: null');
+	} else if (p.references.length === 0) {
+		lines.push('references: []');
+	} else {
+		lines.push('references:');
+		for (const reference of p.references) {
+			lines.push(`  - ${quote(reference)}`);
+		}
+	}
 	lines.push(`readState: ${quote(record.readState)}`);
 	lines.push(`pg3d_sourceId: ${quote(p.sourceId)}`);
 	return lines.join('\n');

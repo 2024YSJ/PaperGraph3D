@@ -18,6 +18,11 @@ export type EmbeddingSource = (typeof EMBEDDING_SOURCES)[number];
 export interface PaperCandidate {
 	title: string;
 	publicationYear: number | undefined;
+	// Full publication date at month/day precision, ISO `YYYY-MM-DD` (UTC), when the
+	// provider supplies a full timestamp (e.g. arXiv's `<published>`). `undefined` when
+	// only a bare year is known. Additive to `publicationYear` (FR-016): the year field
+	// stays the required hold-back/graph-axis key; the date only adds finer precision.
+	publicationDate: string | undefined;
 	authors: string[];
 	// `undefined` means "not known yet" — deliberately distinct from 0 ("confirmed
 	// zero citations"). arXiv returns no citation data at all, so an arXiv-only
@@ -55,6 +60,10 @@ export interface PaperCandidate {
 export interface Paper {
 	title: string;
 	publicationYear: number;
+	// Month/day-precision publication date, ISO `YYYY-MM-DD` (UTC), or `undefined` when
+	// only the year is known. Additive to the required `publicationYear` (which remains
+	// the graph z-axis / 005 window / hold-back key). See PaperCandidate.publicationDate.
+	publicationDate: string | undefined;
 	authors: string[];
 	citationCount: number;
 	// True when citationCount/references came from a citation-aware provider (e.g.
@@ -167,6 +176,10 @@ export function isValidPaper(data: unknown): data is Paper {
 		// A real year is a finite number — reject NaN/Infinity (e.g. from a failed
 		// parse), which `typeof === 'number'` would otherwise let through.
 		Number.isFinite(candidate.publicationYear) &&
+		// Optional month/day precision: absent, or an ISO `YYYY-MM-DD` string.
+		(candidate.publicationDate === undefined ||
+			(typeof candidate.publicationDate === 'string' &&
+				/^\d{4}-\d{2}-\d{2}$/.test(candidate.publicationDate))) &&
 		Array.isArray(candidate.authors) &&
 		candidate.authors.every((author) => typeof author === 'string') &&
 		typeof candidate.citationCount === 'number' &&

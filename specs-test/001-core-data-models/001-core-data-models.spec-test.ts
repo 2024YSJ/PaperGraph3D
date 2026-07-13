@@ -139,6 +139,11 @@ check('US2.3', 'A paper missing (or wrong-typed on) a required attribute is inva
 	assert(!isValidPaper({ ...validPaper(), references: 'x' as unknown as Paper['references'] }), 'non-array references invalid');
 	assert(!isValidPaper({ ...validPaper(), references: ['not-a-source-id'] as unknown as Paper['references'] }), 'references with invalid sourceId invalid');
 	assert(!isValidPaper({ ...validPaper(), sourceId: 'nope' as unknown as Paper['sourceId'] }), 'bare sourceId invalid');
+	// FR-023: optional publicationDate (ISO YYYY-MM-DD) — absent/valid ok, malformed/non-string invalid.
+	assert(isValidPaper({ ...validPaper(), publicationDate: '2019-05-01' }), 'valid ISO publicationDate accepted');
+	assert(isValidPaper({ ...validPaper(), publicationDate: undefined }), 'undefined publicationDate accepted (optional)');
+	assert(!isValidPaper({ ...validPaper(), publicationDate: 'nope' as unknown as string }), 'malformed publicationDate invalid');
+	assert(!isValidPaper({ ...validPaper(), publicationDate: 2019 as unknown as string }), 'non-string publicationDate invalid');
 });
 
 // =====================================================================
