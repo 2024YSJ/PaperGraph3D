@@ -168,7 +168,7 @@ export class PaperStore {
 	}
 
 	private async createPath(input: PersistInput): Promise<void> {
-		// Human-readable, year/month-foldered relative stem `<YYYY>/<MM>/<title (id)>`
+		// Human-readable, date-foldered relative stem `<YYYY>/<MM>/<DD>/<title (id)>`
 		// (FR-007). Rename-safe: pairing keys on the content sourceId, not the path (FR-009).
 		const stem = noteStem(input.paper, this.index.usedStems());
 		const record = wrap(input);

@@ -28,11 +28,11 @@ Source: `spec.md` (Key Entities, Functional Requirements, Clarifications) and `r
 
 | Region | Content | Rule |
 |---|---|---|
-| Frontmatter (managed) | YAML mirroring the shared subset: `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId` | FR-002. Rewritten wholesale on merge; `references`/`schemaVersion`/timestamps/embedding are **not** here. |
+| Frontmatter (managed) | YAML mirroring the shared subset: `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId`, `url` (derived from `sourceId`; omitted for an unrecognized provider), plus `publicationDate` (when known) and `references` (three-state, keyed on `citationsKnown`) | FR-002. Rewritten wholesale on merge; `schemaVersion`/timestamps/embedding are **not** here, and `url` is derived rather than stored in the JSON record. |
 | Managed body block (managed) | Delimited `<!-- pg3d:begin -->` … `<!-- pg3d:end -->`; rendered prose: `abstract`, replaced by `summary` when 004 is on, plus `futureDirections` when applicable | FR-002. Rewritten wholesale on merge. |
 | User body (free-form) | Everything after the managed block | FR-005. **Never** modified, deleted, or parsed on update (delete removes it — FR-012). |
 
-**Serialization**: `renderNote(record, prevUserBody): string` (managed regions from the record + the preserved user body); `parseNote(text): { frontmatter, managedBody, userBody }` (splitter). `pg3d_sourceId` in frontmatter is the content-level id used for rename-safe pairing (FR-009). The embedding is never written to any region (FR-022, SC-008).
+**Serialization**: `renderNote(record, prevUserBody): string` (managed regions from the record + the preserved user body); `parseNote(text): { frontmatter, managedBody, userBody }` (splitter). `pg3d_sourceId` in frontmatter is the content-level id used for rename-safe pairing (FR-009); the `url` line is derived from that same `sourceId` at render time (not stored). The embedding is never written to any region (FR-022, SC-008).
 
 ## IndexEntry (in-memory record index)
 
@@ -41,7 +41,7 @@ Source: `spec.md` (Key Entities, Functional Requirements, Clarifications) and `r
 | Field | Type | Note |
 |---|---|---|
 | `sourceId` | `PaperSourceId` | Key. |
-| `fileStem` | `string` | Relative stem shared by the `.json`/`.md` pair — the human-readable `<YYYY>/<MM>/<title (id)>` (`noteStem`), or the sourceId-sanitized fallback under the date folder for an untitled paper (FR-007). |
+| `fileStem` | `string` | Relative stem shared by the `.json`/`.md` pair — the human-readable `<YYYY>/<MM>/<DD>/<title (id)>` (`noteStem`), or the sourceId-sanitized fallback under the date folder for an untitled paper (FR-007). |
 | `title`, `authors`, `publicationYear`, `citationCount`, `readState` | mirrored subset | Serve fast reads without disk. |
 | `embeddingModel` | `string \| null` | Lightweight provenance. |
 | `embeddingPending` | `boolean` | `true` when the stored embedding is `null`. |

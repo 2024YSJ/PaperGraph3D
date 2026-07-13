@@ -108,13 +108,13 @@ export function migrate(raw: unknown): PaperRecord; // pending-embedding normali
 ```ts
 export function renderNote(record: PaperRecord, previousUserBody: string): string;
 export function parseNote(text: string): { frontmatter: Record<string, unknown>; managedBody: string; userBody: string };
-export function noteStem(paper: Pick<Paper, 'title' | 'sourceId' | 'publicationYear' | 'publicationDate'>, taken: ReadonlySet<string>): string; // "<YYYY>/<MM>/<title (id)>", injective (FR-007)
-export function publicationDir(paper: Pick<Paper, 'publicationYear' | 'publicationDate'>): string; // "<YYYY>/<MM>" (month 'unknown' when year-only)
+export function noteStem(paper: Pick<Paper, 'title' | 'sourceId' | 'publicationYear' | 'publicationDate'>, taken: ReadonlySet<string>): string; // "<YYYY>/<MM>/<DD>/<title (id)>", injective (FR-007)
+export function publicationDir(paper: Pick<Paper, 'publicationYear' | 'publicationDate'>): string; // "<YYYY>/<MM>/<DD>" (falls back to "<YYYY>/unknown" when year-only)
 export function fileStem(sourceId: PaperSourceId, taken: ReadonlySet<string>): string; // sourceId-based fallback, injective
 ```
 
 **Behavior guarantees**:
 - `renderNote` writes only the frontmatter (mirrored subset) + managed body block; `previousUserBody` is appended verbatim (FR-005). The embedding never appears in any region (FR-022/SC-008).
 - `parseNote` splits a note into the three regions without parsing the user body as state (FR-009/FR-010).
-- `noteStem` (used by `store.createPath`) derives a human-readable **relative stem** `<YYYY>/<MM>/<title (id)>` — the `publicationDir` date folder plus the title-based name (normalized/sanitized/length-capped + provider-local id in parentheses, e.g. `2024/03/Attention Is All You Need (2401.12345)`), so it is injective (the id suffix differs per paper) and rename-safe (FR-007/FR-009). The title part falls back to `fileStem`'s sanitization when the title is empty; `publicationDir` uses month `unknown` when only a year is known. `store.load` recurses through the date subfolders (via the FileStore's recursive `list()`), and writes create parent folders as needed.
+- `noteStem` (used by `store.createPath`) derives a human-readable **relative stem** `<YYYY>/<MM>/<DD>/<title (id)>` — the `publicationDir` date folder plus the title-based name (normalized/sanitized/length-capped + provider-local id in parentheses, e.g. `2024/03/15/Attention Is All You Need (2401.12345)`), so it is injective (the id suffix differs per paper) and rename-safe (FR-007/FR-009). The title part falls back to `fileStem`'s sanitization when the title is empty; `publicationDir` falls back to `<YYYY>/unknown` when only a year is known (no full `publicationDate`). `store.load` recurses through the date subfolders (via the FileStore's recursive `list()`), and writes create parent folders as needed.
 - `fileStem` is the sourceId-based fallback stem: injective given the set of already-`taken` stems, appending a deterministic disambiguator when two distinct `sourceId`s sanitize alike.

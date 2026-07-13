@@ -7,7 +7,11 @@ import { requestUrl } from 'obsidian';
 const ARXIV_PAGE_SIZE = 100; // max_results per request (research.md Decision 11)
 const ARXIV_MAX_PAGES = 10; // safety cap: 1,000 entries per subscription per check
 const ARXIV_INTER_PAGE_DELAY_MS = 3_000; // arXiv's requested rate-limit spacing
-const ARXIV_API_URL = 'http://export.arxiv.org/api/query';
+const ARXIV_MAX_ATTEMPTS = 3; // bounded retry on a 429 rate-limit response
+const ARXIV_RETRY_DELAY_MS = 3_000;
+// HTTPS: arXiv 301-redirects the plain-http endpoint, and requestUrl does not reliably follow
+// that redirect — using https directly avoids an empty/failed response.
+const ARXIV_API_URL = 'https://export.arxiv.org/api/query';
 
 type SubscriptionQuery = {
 	type: 'keyword' | 'author' | 'arxivCategory';
@@ -89,6 +93,28 @@ function parseArxivEntries(xmlText: string): Element[] {
 	return Array.from(doc.getElementsByTagName('entry'));
 }
 
+// arXiv 429-rate-limits bursts of requests. requestUrl throws on any non-2xx by default,
+// which would fail a whole collection pass on a single transient 429; instead read the status
+// (throw:false) and retry a bounded number of times with backoff — mirroring the Semantic
+// Scholar client. Only 429 is retried; other HTTP errors and network failures propagate as
+// before (queryArxiv/fetchArxivEntryById surface them; fetchArxivEntriesByIds catches them).
+async function fetchArxivAtom(url: string): Promise<string> {
+	for (let attempt = 0; attempt < ARXIV_MAX_ATTEMPTS; attempt += 1) {
+		if (attempt > 0) {
+			await delay(ARXIV_RETRY_DELAY_MS);
+		}
+		const response = await requestUrl({ url, throw: false });
+		if (response.status === 429) {
+			continue;
+		}
+		if (response.status >= 400) {
+			throw new Error(`arXiv request failed: ${response.status}`);
+		}
+		return response.text;
+	}
+	throw new Error(`arXiv rate-limited (429) after ${ARXIV_MAX_ATTEMPTS} attempts`);
+}
+
 // The arXiv id a returned `<entry>` corresponds to, extracted from its `<id>` tag
 // (e.g. 'http://arxiv.org/abs/2607.08459v1' -> '2607.08459'). Used to match batch
 // results back to requested ids, since a missing id is simply omitted from the feed.
@@ -121,8 +147,7 @@ export async function queryArxiv(
 			start: page * ARXIV_PAGE_SIZE,
 			maxResults: ARXIV_PAGE_SIZE,
 		});
-		const response = await requestUrl({ url });
-		const pageEntries = parseArxivEntries(response.text);
+		const pageEntries = parseArxivEntries(await fetchArxivAtom(url));
 		for (const entry of pageEntries) {
 			entries.push(entry);
 		}
@@ -164,8 +189,7 @@ export async function queryArxiv(
 // research.md Decision 1. Callers map the returned <entry> through parseArxivEntry.
 export async function fetchArxivEntryById(baseArxivId: string): Promise<Element | undefined> {
 	const url = `${ARXIV_API_URL}?id_list=${encodeURIComponent(baseArxivId)}`;
-	const response = await requestUrl({ url });
-	return parseArxivEntries(response.text)[0];
+	return parseArxivEntries(await fetchArxivAtom(url))[0];
 }
 
 // NEW: bulk-refresh content re-fetch (research.md Decision 4, corrected). arXiv's
@@ -198,8 +222,7 @@ export async function fetchArxivEntriesByIds(
 		const chunk = baseArxivIds.slice(start, start + ARXIV_PAGE_SIZE);
 		const url = `${ARXIV_API_URL}?id_list=${encodeURIComponent(chunk.join(','))}&max_results=${chunk.length}`;
 		try {
-			const response = await requestUrl({ url });
-			for (const entry of parseArxivEntries(response.text)) {
+			for (const entry of parseArxivEntries(await fetchArxivAtom(url))) {
 				const id = entryBaseId(entry);
 				if (id !== undefined) {
 					found.set(id, entry);

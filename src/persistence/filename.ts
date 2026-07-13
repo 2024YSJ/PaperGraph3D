@@ -62,24 +62,26 @@ function baseNoteName(title: string, sourceId: PaperSourceId): string {
 	return sanitizeStem(`${cleanTitle} (${localId})`);
 }
 
-// Year/month folder for a paper (FR-007, amended 2026-07-11): `<YYYY>/<MM>`. The YEAR is
-// `publicationYear` (always present on a valid Paper); the MONTH comes from
-// `publicationDate` (001 FR-023), or `unknown` when only a bare year is known.
+// Year/month/day folder for a paper (FR-007): `<YYYY>/<MM>/<DD>`. The YEAR is
+// `publicationYear` (always present on a valid Paper); the MONTH and DAY come from
+// `publicationDate` (001 FR-023). When only a bare year is known (no full date), falls
+// back to `<YYYY>/unknown` rather than fabricating a month/day.
 export function publicationDir(paper: Pick<Paper, 'publicationYear' | 'publicationDate'>): string {
-	const month =
-		paper.publicationDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(paper.publicationDate)
-			? paper.publicationDate.slice(5, 7)
-			: 'unknown';
-	return `${paper.publicationYear}/${month}`;
+	if (paper.publicationDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(paper.publicationDate)) {
+		const month = paper.publicationDate.slice(5, 7);
+		const day = paper.publicationDate.slice(8, 10);
+		return `${paper.publicationYear}/${month}/${day}`;
+	}
+	return `${paper.publicationYear}/unknown`;
 }
 
-// Full relative note stem shared by the `.json`/`.md` pair — the year/month folder prefix
-// plus the human-readable title-based name: `<YYYY>/<MM>/<title (id)>`, e.g.
-// `2024/03/Attention Is All You Need (2401.12345)`. Display-facing only: pairing keys on
+// Full relative note stem shared by the `.json`/`.md` pair — the year/month/day folder
+// prefix plus the human-readable title-based name: `<YYYY>/<MM>/<DD>/<title (id)>`, e.g.
+// `2024/03/15/Attention Is All You Need (2401.12345)`. Display-facing only: pairing keys on
 // the content sourceId, never the path (FR-009), so it is rename-safe; it is fixed at
 // creation and reused on updates, so a later title/content revision never re-folders or
 // renames. Injective via the parenthesized id (distinct papers never collide even at an
-// identical title within the same month), with a deterministic disambiguator on any clash.
+// identical title within the same day), with a deterministic disambiguator on any clash.
 export function noteStem(
 	paper: Pick<Paper, 'title' | 'sourceId' | 'publicationYear' | 'publicationDate'>,
 	taken: ReadonlySet<string>,

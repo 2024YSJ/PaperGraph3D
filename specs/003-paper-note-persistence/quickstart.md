@@ -32,7 +32,7 @@ rm -rf scratch
 ### Create & mirror (US1)
 
 - **Create pairing** (FR-001/SC-001): `upsert` a new paper → the fake holds exactly one `.json` and one `.md` sharing the stem; no other files.
-- **Frontmatter mirrors subset** (FR-002): the `.md` frontmatter contains `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId` — and **not** `references`/`schemaVersion`/timestamps/embedding.
+- **Frontmatter mirrors subset** (FR-002): the `.md` frontmatter contains `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId`, and a `url` derived from `sourceId` (e.g. `arxiv:2301.12345` → `https://arxiv.org/abs/2301.12345`; omitted for an unrecognized provider) — and **not** `schemaVersion`/timestamps/embedding, nor a stored `url` in the `.json`.
 - **Embedding never in the note** (FR-022/SC-008): neither the frontmatter, the managed body block, nor the user body contains the embedding vector; the `.json` record's `paper` does.
 - **Atomic create** (US1.3/FR-011): a `write` failure injected on the `.md` leaves **neither** file (record written durably first, then rolled back on detected failure).
 
@@ -66,7 +66,7 @@ rm -rf scratch
 
 ### Filenames (FR-007)
 
-- **Date-foldered, title-based, injective stem (FR-007)**: a titled paper → stem `<YYYY>/<MM>/<title> (<provider-local id>)`, e.g. `2024/03/Attention Is All You Need (2401.12345)` (month `unknown` when only a year is known); an untitled paper falls back to the sourceId sanitization `arxiv:2401.12345` → `arxiv_2401.12345` under its date folder. The parenthesized id keeps distinct papers injective even at an identical title (disambiguator appended on any residual clash); `store.load` recurses through the date subfolders.
+- **Date-foldered, title-based, injective stem (FR-007)**: a titled paper → stem `<YYYY>/<MM>/<DD>/<title> (<provider-local id>)`, e.g. `2024/03/15/Attention Is All You Need (2401.12345)` (falls back to `<YYYY>/unknown` when only a year is known); an untitled paper falls back to the sourceId sanitization `arxiv:2401.12345` → `arxiv_2401.12345` under its date folder. The parenthesized id keeps distinct papers injective even at an identical title (disambiguator appended on any residual clash); `store.load` recurses through the date subfolders.
 
 ## Expected outcome
 
