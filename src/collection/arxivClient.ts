@@ -7,7 +7,9 @@ import { requestUrl } from 'obsidian';
 const ARXIV_PAGE_SIZE = 100; // max_results per request (research.md Decision 11)
 const ARXIV_MAX_PAGES = 10; // safety cap: 1,000 entries per subscription per check
 const ARXIV_INTER_PAGE_DELAY_MS = 3_000; // arXiv's requested rate-limit spacing
-const ARXIV_API_URL = 'http://export.arxiv.org/api/query';
+// HTTPS: arXiv 301-redirects the plain-http endpoint, and requestUrl does not reliably follow
+// that redirect — using https directly avoids an empty/failed response.
+const ARXIV_API_URL = 'https://export.arxiv.org/api/query';
 
 type SubscriptionQuery = {
 	type: 'keyword' | 'author' | 'arxivCategory';
