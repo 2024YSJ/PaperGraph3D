@@ -3,7 +3,7 @@ import type { FileStore } from './filestore';
 
 // The ONLY Obsidian-touching module. Confines all vault I/O to `baseFolder`
 // (FR-006) via the Vault DataAdapter, taking store-relative paths and resolving
-// them under the base. Paths may include `<YYYY>/<MM>/` subfolders (FR-007), so
+// them under the base. Paths may include `<YYYY>/<MM>/<DD>/` subfolders (FR-007), so
 // writes create the parent chain and `list()` recurses. Verified by the manual
 // in-vault smoke (tasks T019).
 export function createObsidianFileStore(app: App, baseFolder: string): FileStore {
@@ -55,7 +55,7 @@ export function createObsidianFileStore(app: App, baseFolder: string): FileStore
 			await ensureDir('');
 			const files: string[] = [];
 			// Depth-first walk over the base and its subfolders — returns every file's
-			// store-relative path (incl. the `<YYYY>/<MM>/` prefix), matching how the
+			// store-relative path (incl. the `<YYYY>/<MM>/<DD>/` prefix), matching how the
 			// in-memory fake's flat key space already behaves.
 			const walk = async (absDir: string): Promise<void> => {
 				const listing = await adapter.list(absDir);

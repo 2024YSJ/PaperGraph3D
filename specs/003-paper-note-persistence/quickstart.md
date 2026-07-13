@@ -66,7 +66,7 @@ rm -rf scratch
 
 ### Filenames (FR-007)
 
-- **Date-foldered, title-based, injective stem (FR-007)**: a titled paper → stem `<YYYY>/<MM>/<title> (<provider-local id>)`, e.g. `2024/03/Attention Is All You Need (2401.12345)` (month `unknown` when only a year is known); an untitled paper falls back to the sourceId sanitization `arxiv:2401.12345` → `arxiv_2401.12345` under its date folder. The parenthesized id keeps distinct papers injective even at an identical title (disambiguator appended on any residual clash); `store.load` recurses through the date subfolders.
+- **Date-foldered, title-based, injective stem (FR-007)**: a titled paper → stem `<YYYY>/<MM>/<DD>/<title> (<provider-local id>)`, e.g. `2024/03/15/Attention Is All You Need (2401.12345)` (falls back to `<YYYY>/unknown` when only a year is known); an untitled paper falls back to the sourceId sanitization `arxiv:2401.12345` → `arxiv_2401.12345` under its date folder. The parenthesized id keeps distinct papers injective even at an identical title (disambiguator appended on any residual clash); `store.load` recurses through the date subfolders.
 
 ## Expected outcome
 

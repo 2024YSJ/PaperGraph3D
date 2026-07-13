@@ -81,7 +81,7 @@ async function main() {
 		const store = new PaperStore(fs);
 		const p = paper(2, { authors: ['Solo Author'], citationCount: 7, publicationDate: '2020-06-15' });
 		await store.upsert(input(p));
-		const fm = parseNote((await fs.read('2020/06/Title 2 (2).md')) ?? '').frontmatter;
+		const fm = parseNote((await fs.read('2020/06/15/Title 2 (2).md')) ?? '').frontmatter;
 		assert(fm.title === p.title, 'title not mirrored');
 		assert(Array.isArray(fm.authors) && (fm.authors as string[])[0] === 'Solo Author', 'authors not mirrored');
 		assert(fm.publicationYear === 2020, 'publicationYear not mirrored');
