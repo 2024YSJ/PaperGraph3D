@@ -12,6 +12,7 @@ import type { PipelineHooks } from './collection/pipeline';
 import { reembedCorpus } from './collection/reembed';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
+import { registerCollectPapersCommand } from './commands/collectPapers';
 
 // Bilingual-ready user-facing copy (constitution Principle V). Korean first, English second.
 function subscriptionFailureNotice(
@@ -141,6 +142,18 @@ export default class PaperGraph3DPlugin extends Plugin {
 				store.recordBackfillProgress(subscription, cursor),
 		});
 		this.scheduler = scheduler;
+
+		// Interim manual-collection command (removed once 008's subscription UI ships): a
+		// deliberate user action that runs one collection pass over the same hooks/settings.
+		registerCollectPapersCommand(this, {
+			hooks: pipelineHooks,
+			isSummarizationEnabled: () => this.settings.summarizationEnabled,
+			getSemanticScholarApiKey: () => this.settings.semanticScholarApiKey,
+			getEmbeddingConfig: () => ({
+				provider: this.settings.embeddingProvider ?? 'bundled',
+				localModel: this.settings.localEmbeddingModel,
+			}),
+		});
 	}
 
 	onunload() {
