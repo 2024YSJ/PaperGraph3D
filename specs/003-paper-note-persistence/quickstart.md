@@ -32,7 +32,7 @@ rm -rf scratch
 ### Create & mirror (US1)
 
 - **Create pairing** (FR-001/SC-001): `upsert` a new paper → the fake holds exactly one `.json` and one `.md` sharing the stem; no other files.
-- **Frontmatter mirrors subset** (FR-002): the `.md` frontmatter contains `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId` — and **not** `references`/`schemaVersion`/timestamps/embedding.
+- **Frontmatter mirrors subset** (FR-002): the `.md` frontmatter contains `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId`, and a `url` derived from `sourceId` (e.g. `arxiv:2301.12345` → `https://arxiv.org/abs/2301.12345`; omitted for an unrecognized provider) — and **not** `schemaVersion`/timestamps/embedding, nor a stored `url` in the `.json`.
 - **Embedding never in the note** (FR-022/SC-008): neither the frontmatter, the managed body block, nor the user body contains the embedding vector; the `.json` record's `paper` does.
 - **Atomic create** (US1.3/FR-011): a `write` failure injected on the `.md` leaves **neither** file (record written durably first, then rolled back on detected failure).
 

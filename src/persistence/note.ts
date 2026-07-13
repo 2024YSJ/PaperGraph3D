@@ -16,6 +16,31 @@ function quote(value: string): string {
 	return JSON.stringify(value);
 }
 
+// The paper's canonical web URL, derived from its stable `sourceId` (001) rather
+// than stored — the JSON record already carries sourceId, so a stored URL would be
+// redundant and could drift. `provider:local` splits on the first colon (mirrors
+// isPaperSourceId in models/paper.ts). Returns undefined for an unrecognized
+// provider so the frontmatter simply omits the line rather than emit a bad link.
+function paperUrl(sourceId: string): string | undefined {
+	const separator = sourceId.indexOf(':');
+	if (separator <= 0) {
+		return undefined;
+	}
+	const provider = sourceId.slice(0, separator);
+	const localId = sourceId.slice(separator + 1);
+	if (localId.length === 0) {
+		return undefined;
+	}
+	switch (provider) {
+		case 'arxiv':
+			return `https://arxiv.org/abs/${localId}`;
+		case 'semanticScholar':
+			return `https://www.semanticscholar.org/paper/${localId}`;
+		default:
+			return undefined;
+	}
+}
+
 // FR-002 mirrored subset. `schemaVersion` / timestamps / the embedding vector stay in
 // the JSON record only; the outbound `references` (the source ids of the papers this
 // paper cites) ARE mirrored here as a readable list (amended 2026-07-11).
@@ -56,6 +81,12 @@ function renderFrontmatter(record: PaperRecord): string {
 	}
 	lines.push(`readState: ${quote(record.readState)}`);
 	lines.push(`pg3d_sourceId: ${quote(p.sourceId)}`);
+	// Canonical web URL derived from sourceId (see paperUrl); omitted for an
+	// unrecognized provider rather than emitting a broken link.
+	const url = paperUrl(p.sourceId);
+	if (url !== undefined) {
+		lines.push(`url: ${quote(url)}`);
+	}
 	return lines.join('\n');
 }
 
