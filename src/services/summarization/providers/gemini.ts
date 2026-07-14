@@ -19,8 +19,19 @@ import {
 // file is summarization-only for now (embedding multi-provider is surfaced
 // separately).
 
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'gemini-3-flash-preview';
 const GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+// gemini-3 flash is a "thinking" model: by default it spends a large hidden
+// reasoning budget before answering, which for this summarization prompt runs
+// ~10s+ per call and, on a throttled free tier or a long abstract, routinely
+// breaches generate.ts's GENERATION_TIMEOUT_MS (20s) — every such call then aborts
+// and falls back to the raw abstract (FR-007). A summary of a title+abstract needs
+// no extended chain-of-thought, so we disable it (thinkingBudget: 0), which cuts
+// latency to ~2s and keeps calls well inside the timeout without changing the
+// output contract. This lives in the request body (a Gemini-only knob) rather than
+// in the shared timeout, so the OpenAI/Anthropic adapters are untouched.
+const THINKING_DISABLED = { thinkingConfig: { thinkingBudget: 0 } };
 
 // candidates[0].content.parts[0].text carries the reply.
 function extractCandidateText(body: unknown): unknown {
@@ -57,6 +68,7 @@ export const geminiProvider: SummarizationProvider = {
 			headers: { 'x-goog-api-key': credential },
 			body: JSON.stringify({
 				contents: [{ parts: [{ text: prompt }] }],
+				generationConfig: THINKING_DISABLED,
 			}),
 			throw: false,
 		});
