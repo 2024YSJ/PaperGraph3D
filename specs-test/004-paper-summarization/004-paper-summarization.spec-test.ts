@@ -13,6 +13,12 @@
 
 import { createSummarizeHook } from '../../src/services/summarization/hook';
 import { openAiProvider } from '../../src/services/summarization/providers/openai';
+import { anthropicProvider } from '../../src/services/summarization/providers/anthropic';
+import { geminiProvider } from '../../src/services/summarization/providers/gemini';
+import {
+	resolveSummarizationProvider,
+	SUMMARIZATION_PROVIDER_IDS,
+} from '../../src/services/summarization/providers/registry';
 import { __setNextResponse, type RequestUrlResponse } from './_obsidian-shim';
 import {
 	llmEmbeddingUpgrade,
@@ -309,6 +315,59 @@ async function main() {
 		const r = await openAiProvider.generate(citedInput(), 'k', noSignal);
 		assert(r.summary === 'Just a summary with no marker at all.', 'whole content becomes the summary');
 		assert(r.futureDirections === undefined, 'no future-directions emitted when the marker is absent');
+	});
+
+	// =================================================================
+	// Multi-provider — Anthropic (Claude) and Gemini adapters share the same
+	// prompt + future-directions split as OpenAI but differ in transport/response
+	// shape and (Gemini) error classification. Deterministic via canned responses.
+	// =================================================================
+	function cannedMessage(text: string): RequestUrlResponse {
+		// Anthropic Messages API shape: content is an array of typed text blocks.
+		return { status: 200, text: '', json: { content: [{ type: 'text', text }] } };
+	}
+	function cannedGemini(text: string): RequestUrlResponse {
+		// Gemini generateContent shape: candidates[].content.parts[].text.
+		return { status: 200, text: '', json: { candidates: [{ content: { parts: [{ text }] } }] } };
+	}
+
+	await check('PROVIDER.registry', 'Registry resolves the three real ids and rejects unknown/undefined', () => {
+		assert(resolveSummarizationProvider('openai') === openAiProvider, 'openai id resolves');
+		assert(resolveSummarizationProvider('anthropic') === anthropicProvider, 'anthropic id resolves');
+		assert(resolveSummarizationProvider('gemini') === geminiProvider, 'gemini id resolves');
+		assert(resolveSummarizationProvider('nope') === undefined, 'unknown id → undefined (not configured)');
+		assert(resolveSummarizationProvider(undefined) === undefined, 'absent id → undefined (not configured)');
+		assert(SUMMARIZATION_PROVIDER_IDS.join(',') === 'openai,anthropic,gemini', 'stable selectable id list for the settings UI');
+	});
+	await check('ANTHROPIC.parse', 'Claude adapter extracts content[].text and applies the shared split', async () => {
+		__setNextResponse(cannedMessage('A Claude summary body.\nFuture directions: connect method A to field B.'));
+		const r = await anthropicProvider.generate(uncitedInput(), 'k', noSignal);
+		assert(r.summary === 'A Claude summary body.', 'summary extracted from the first text block, before the marker');
+		assert(r.futureDirections === 'connect method A to field B.', 'future-directions recovered via the shared marker split');
+	});
+	await check('ANTHROPIC.malformed', 'Claude adapter throws provider-error on a missing text block', async () => {
+		__setNextResponse({ status: 200, text: '', json: { content: [] } });
+		let threw = false;
+		try { await anthropicProvider.generate(citedInput(), 'k', noSignal); } catch { threw = true; }
+		assert(threw, 'a body with no text block is treated as a malformed provider response');
+	});
+	await check('GEMINI.parse', 'Gemini adapter extracts candidates[].content.parts[].text and splits', async () => {
+		__setNextResponse(cannedGemini('A Gemini summary body.\nFuture Directions\nExpected direction: extend to C.'));
+		const r = await geminiProvider.generate(uncitedInput(), 'k', noSignal);
+		assert(r.summary === 'A Gemini summary body.', 'summary extracted from the first candidate part');
+		assert(r.futureDirections === 'Expected direction: extend to C.', 'tolerant split works on the Gemini shape too');
+	});
+	await check('GEMINI.badkey', 'Gemini adapter maps an HTTP 400 API_KEY_INVALID body to invalid-credentials', async () => {
+		__setNextResponse({ status: 400, text: '', json: { error: { status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key.', details: [{ reason: 'API_KEY_INVALID' }] } } });
+		let message = '';
+		try { await geminiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/invalid-credentials/.test(message), 'a 400 whose body names an API-key problem is classified invalid-credentials (drives the FR-008 Notice)');
+	});
+	await check('GEMINI.servererror', 'Gemini adapter maps a generic 500 to provider-error, not invalid-credentials', async () => {
+		__setNextResponse({ status: 500, text: '', json: { error: { message: 'internal' } } });
+		let message = '';
+		try { await geminiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/provider-error/.test(message) && !/invalid-credentials/.test(message), 'a non-key server error stays a generic provider-error (silent abstract fallback)');
 	});
 
 	// =================================================================

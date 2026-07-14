@@ -13,7 +13,7 @@ import { reembedCorpus } from './collection/reembed';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
-import { openAiProvider } from './services/summarization/providers/openai';
+import { resolveSummarizationProvider } from './services/summarization/providers/registry';
 
 // Bilingual-ready user-facing copy (constitution Principle V). Korean first, English second.
 function subscriptionFailureNotice(
@@ -126,13 +126,15 @@ export default class PaperGraph3DPlugin extends Plugin {
 		}
 
 		const pipelineHooks: PipelineHooks = {
-			// 004-owned (FR-006). 'openai' is the only recognized provider id for now
-			// (contracts/summarization-api.md § main.ts); an unrecognized/absent
-			// selection resolves to undefined, which createSummarizeHook() treats as
-			// "not configured" (no summarization call is ever attempted).
+			// 004-owned (FR-006). The stored summarizationProvider id is resolved
+			// through the provider registry ('openai' | 'anthropic' | 'gemini'); an
+			// unrecognized/absent selection resolves to undefined, which
+			// createSummarizeHook() treats as "not configured" (no summarization call
+			// is ever attempted). The single summarizationCredential applies to
+			// whichever provider is currently selected.
 			summarize: createSummarizeHook({
 				getProvider: () =>
-					this.settings.summarizationProvider === 'openai' ? openAiProvider : undefined,
+					resolveSummarizationProvider(this.settings.summarizationProvider),
 				getCredential: () => this.settings.summarizationCredential,
 				notifyCredentialProblem: (message) => new Notice(message),
 			}),
