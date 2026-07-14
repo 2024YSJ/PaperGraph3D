@@ -81,3 +81,44 @@ All `PASS` lines, zero `FAIL`. Delete `scratch/` afterward.
 ## Manual in-vault smoke (adapter only)
 
 Because `providers/openai.ts` is the sole network-touching code (via `requestUrl`), verify it once by hand: enable summarization in settings with a real OpenAI key, collect a single paper, and confirm (a) the resulting note's managed region shows a generated summary instead of the raw abstract, (b) an uncited paper's note additionally shows a future-directions section, (c) disabling the feature (or removing the key) and collecting another paper falls back to the abstract with no error surfaced to the user, and (d) if the LLM embedding provider is also selected, the paper's persisted record has an `embeddingModel` starting with `llm:`.
+
+## Triggering a real collection before the 008 UI exists (team smoke with your own key)
+
+The subscription-management UI that starts a collection is owned by 008 and not built yet; the scheduler ships with `autoStart: false`, so **loading the plugin never collects on its own** (`src/collection/scheduler.ts` — "only an explicit `checkNow`/`backfillNow` drives collection"). Until 008 lands, drive one real end-to-end collection — real arXiv + Semantic Scholar + your chosen summarization provider — straight through the shipped plugin from Obsidian's developer console. This needs no test harness and no repo changes; it runs the exact `main.ts` wiring a user eventually will.
+
+Each teammate uses their **own** API key (bring-your-own-key; `data.json` is git-ignored and holds a plaintext key, so it is never committed).
+
+1. **Build & install the plugin.** `npm run build`, then copy `main.js` + `manifest.json` (+ `styles.css` if present) into `<Vault>/.obsidian/plugins/paper-graph-3d/`.
+2. **Configure `data.json`** at `<Vault>/.obsidian/plugins/paper-graph-3d/data.json`:
+   ```json
+   {
+     "subscriptions": [
+       { "type": "keyword", "value": "mixture of depths",
+         "checkIntervalHours": 24, "enabled": true,
+         "lastCheckedAt": 1780272000000 }
+     ],
+     "settings": {
+       "storageLocation": "PaperGraph3D",
+       "summarizationEnabled": true,
+       "summarizationProvider": "anthropic",
+       "summarizationCredential": "<your-api-key>",
+       "graphDisplayOptions": { "layout": "force-directed", "colorScheme": "byPublicationYear" }
+     }
+   }
+   ```
+   - `summarizationProvider` is one of `openai` / `anthropic` / `gemini`; `summarizationCredential` is the matching key.
+   - A past `lastCheckedAt` (e.g. `1780272000000` = 2026-06-01) makes the collection window cover a span that contains Semantic-Scholar-indexed, zero-citation papers, so you can see the **future-directions** section (only generated when `citationsKnown === true && citationCount === 0`).
+3. **Reload the plugin** (Settings → Community plugins → toggle it Off then On) so it re-reads `data.json`.
+4. **Open the developer console** (macOS `Cmd+Opt+I`, Windows/Linux `Ctrl+Shift+I` → Console tab) and run:
+   ```js
+   const p = app.plugins.plugins['paper-graph-3d'];
+   const sub = (await p.loadData()).subscriptions[0];
+   await p.scheduler.checkNow(sub);
+   console.log('collection done');
+   ```
+5. **Confirm** the notes under `<Vault>/PaperGraph3D/<year>/<month>/<day>/`: each managed region (between the `<!-- pg3d:begin -->` / `<!-- pg3d:end -->` markers) holds a generated summary; uncited papers additionally carry a `## Future directions` section; a paper whose citation status is still unknown (a brand-new arXiv id not yet in Semantic Scholar → `citationsKnown: false`) correctly gets the summary only.
+
+Notes:
+- A successful `checkNow` advances the subscription's `lastCheckedAt` to now; to re-run the same window, reset `lastCheckedAt` to a past value in `data.json` and reload again.
+- `p.scheduler` is `undefined` if the plugin is not enabled / still loading.
+- A summary that shows the raw abstract instead of generated text means the provider call fell back (bad/expired key, no billing credits, or a transient provider error) — fallback never blocks persistence (FR-007), so the note is still written.
