@@ -23,7 +23,7 @@ import {
 
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-const CHAT_MODEL = 'claude-3-5-haiku-latest';
+const CHAT_MODEL = 'claude-haiku-4-5-20251001';
 // Bounds the reply; the summary + two future-directions sentences fit comfortably.
 const MAX_TOKENS = 1024;
 
