@@ -27,6 +27,13 @@ export interface SchedulerDeps {
 	onFailure?: (subscription: Subscription, reason: 'unreachable' | 'truncated') => void;
 	onBackfillProgress?: (subscription: Subscription, cursor: number) => Promise<void>;
 	now?: () => number;
+	// When false, the scheduler is constructed (checkNow/backfillNow stay callable, so an
+	// explicit user action can still collect) but performs NO automatic collection: it runs
+	// no catch-up-on-load pass and registers no recurring tick. Defaults to true (002's
+	// product behavior). The assembling feature (008) sets this once its subscription-
+	// management UI exists; until then the plugin never touches the network on startup or a
+	// timer without a deliberate user action (constitution Principle IV — offline by default).
+	autoStart?: boolean;
 }
 
 export interface SchedulerHandle {
@@ -254,19 +261,24 @@ export async function startScheduler(
 		}
 	}
 
-	// Catch-up-on-load pass — synchronous part of startScheduler, no artificial delay
-	// (research.md Decision 17). Every enabled subscription gets one frontier check.
-	const catchUpNow = nowFn();
-	for (const subscription of deps.getSubscriptions()) {
-		await processSubscription(subscription, catchUpNow, false);
-	}
+	// Automatic collection (catch-up-on-load + recurring tick) is opt-out via autoStart.
+	// When disabled, only an explicit checkNow/backfillNow drives collection — the plugin
+	// makes no startup or timer network request (SchedulerDeps.autoStart).
+	if (deps.autoStart !== false) {
+		// Catch-up-on-load pass — synchronous part of startScheduler, no artificial delay
+		// (research.md Decision 17). Every enabled subscription gets one frontier check.
+		const catchUpNow = nowFn();
+		for (const subscription of deps.getSubscriptions()) {
+			await processSubscription(subscription, catchUpNow, false);
+		}
 
-	// Register the single recurring tick via registerInterval (constitution Principle II).
-	const handle = window.setInterval(() => {
-		void tick();
-	}, SCHEDULER_TICK_INTERVAL_MS);
-	(handle as unknown as { unref?: () => void }).unref?.();
-	plugin.registerInterval?.(handle);
+		// Register the single recurring tick via registerInterval (constitution Principle II).
+		const handle = window.setInterval(() => {
+			void tick();
+		}, SCHEDULER_TICK_INTERVAL_MS);
+		(handle as unknown as { unref?: () => void }).unref?.();
+		plugin.registerInterval?.(handle);
+	}
 
 	return {
 		checkNow: (subscription) => runFrontier(subscription),

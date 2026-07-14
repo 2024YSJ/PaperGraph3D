@@ -167,6 +167,66 @@ async function main() {
 		assert(computeLagOverlapWindow(frontier, { lastCheckedAt: null, coveredFrom: null }, now) === undefined, 'undefined on first check');
 		assert(computeLagOverlapWindow(frontier, { lastCheckedAt: 200 * DAY, coveredFrom: null }, now) === undefined, 'undefined on clock backward');
 	});
+
+	// Positional-misalignment guard (enrichment.ts): the Semantic Scholar batch endpoint
+	// returns results index-aligned to the input ids, so an enriched record must echo the
+	// arXiv id it was asked about. These two cases stub the batch response (via globalThis.fetch,
+	// same seam SC-013 uses) so they are deterministic and never touch the network.
+	const stubBatch = (records: unknown[]) =>
+		(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(records) })) as unknown as typeof fetch;
+
+	await check('EC-8', "Batch enrichment REJECTS a record whose echoed arXiv id doesn't match the queried candidate — transientFailure, never enriched with another paper's citation data", async () => {
+		const originalFetch = globalThis.fetch;
+		try {
+			// Asked about arxiv:1706.03762 but the record echoes a different id → misaligned.
+			globalThis.fetch = stubBatch([{ paperId: 'wrong', externalIds: { ArXiv: '9999.99999' }, citationCount: 42, references: [] }]);
+			const outcomes = await enrichFromSemanticScholar(
+				[{ title: 'a', publicationYear: 2020, authors: [], citationCount: undefined, abstract: '', sourceId: 'arxiv:1706.03762', references: undefined }],
+				undefined,
+			);
+			const outcome = outcomes.get('arxiv:1706.03762');
+			assert(outcome !== undefined && outcome.status === 'transientFailure', `expected transientFailure on arXiv-id mismatch, got ${outcome?.status}`);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	await check('EC-9', 'Batch enrichment ACCEPTS a record whose echoed arXiv id matches the queried candidate (control) — enriched with its citation data', async () => {
+		const originalFetch = globalThis.fetch;
+		try {
+			globalThis.fetch = stubBatch([{ paperId: 'right', externalIds: { ArXiv: '1706.03762' }, citationCount: 42, references: [] }]);
+			const outcomes = await enrichFromSemanticScholar(
+				[{ title: 'a', publicationYear: 2020, authors: [], citationCount: undefined, abstract: '', sourceId: 'arxiv:1706.03762', references: undefined }],
+				undefined,
+			);
+			const outcome = outcomes.get('arxiv:1706.03762');
+			assert(
+				outcome !== undefined && outcome.status === 'enriched' && outcome.citationCount === 42,
+				`expected enriched(citationCount 42) on arXiv-id match, got ${JSON.stringify(outcome)}`,
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	await check('SC-014', 'A genuinely new subscription has its first check begin without waiting for the next tick, never processed concurrently with it', async () => {
+		let saved: unknown[] = [];
+		let scheduler: { checkNow: (s: Subscription) => Promise<void> } | undefined;
+		const store = createSubscriptionStore({
+			load: async () => [],
+			save: async (s) => { saved = s; },
+			onRegistered: (s) => { void scheduler?.checkNow(s); },
+		});
+		let checkNowCalls = 0;
+		scheduler = await startScheduler({ registerInterval: (h: number) => h } as never, {
+			getSubscriptions: () => store.list(),
+			onSubscriptionChecked: async () => {},
+			runCheck: async () => { checkNowCalls += 1; return { truncated: false, coveredThrough: now }; },
+			now: () => now,
+		});
+		await store.register({ type: 'keyword', value: 'sc014' });
+		await new Promise((r) => setTimeout(r, 10));
+		assert(checkNowCalls === 1, `expected the immediate on-register check to fire exactly once, got ${checkNowCalls}`);
 	await check('US2.3/SC-004', 'A paper found twice (same sourceId) is processed only once (dedup)', async () => {
 		const { hooks, persisted } = makeHooks();
 		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:1'), candidate('arxiv:2')]), hooks, () => false, () => undefined, noEnrich);
