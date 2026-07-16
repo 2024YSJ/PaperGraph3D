@@ -101,14 +101,18 @@ export function firstElement(value: unknown): unknown {
 	return Array.isArray(value) ? value[0] : undefined;
 }
 
-// A non-2xx response with a 401/403 status is classified invalid-credentials by
-// generate.ts's classifyRejection (matched on this exact message substring); any
-// other non-2xx is a generic provider-error. Shared by the OpenAI and Anthropic
-// adapters, both of which use HTTP 401/403 for authentication failures. (Gemini
-// reports a bad key differently and classifies its own errors.)
+// A non-2xx response with a 401/403 status is classified invalid-credentials, and a
+// 429 as rate-limited, by generate.ts's classifyRejection (matched on these exact
+// message substrings); any other non-2xx is a generic provider-error. Shared by the
+// OpenAI and Anthropic adapters, both of which use HTTP 401/403 for authentication
+// failures and 429 for rate/quota limits. (Gemini reports these differently and
+// classifies its own errors.)
 export function credentialOrProviderError(status: number): Error {
 	if (status === 401 || status === 403) {
 		return new Error(`invalid-credentials (status ${status})`);
+	}
+	if (status === 429) {
+		return new Error(`rate-limited (status ${status})`);
 	}
 	return new Error(`provider-error (status ${status})`);
 }

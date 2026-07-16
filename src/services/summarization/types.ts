@@ -16,6 +16,7 @@ export interface SummarizationProvider {
 export type GenerationFailureReason =
 	| 'timeout'
 	| 'invalid-credentials'
+	| 'rate-limited'
 	| 'empty-or-too-short'
 	| 'provider-error';
 
