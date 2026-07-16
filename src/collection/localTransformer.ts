@@ -81,6 +81,94 @@ export function resetPipeline(): void {
 	cachedPipeline = undefined;
 }
 
+export interface EmbeddingDiagnostics {
+	readonly crossOriginIsolated: boolean;
+	readonly numThreads: number | undefined;
+	readonly wasmPaths: string;
+	readonly initMs: number;
+	readonly perPaperMs: number[];
+	readonly dimension: number;
+	/** Cosine against the Python int8 reference for the same pair; ~0.93 means the JS path matches. */
+	readonly relatedCosine: number;
+	readonly unrelatedCosine: number;
+}
+
+const DIAG_PAPERS: readonly (readonly [string, string])[] = [
+	[
+		'SPECTER: Document-level Representation Learning using Citation-informed Transformers',
+		'Representation learning is a critical ingredient for natural language processing systems. We propose SPECTER, a new method to generate document-level embedding of scientific documents based on pretraining a Transformer language model on a powerful signal of document-level relatedness: the citation graph.',
+	],
+	[
+		'Neighborhood Contrastive Learning for Scientific Document Representations with Citation Embeddings',
+		'Learning scientific document representations can be substantially improved through contrastive learning objectives, where the challenge lies in creating positive and negative training samples that encode the desired similarity semantics.',
+	],
+	[
+		'Attention Is All You Need',
+		'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.',
+	],
+];
+
+function cosine(a: readonly number[], b: readonly number[]): number {
+	let dot = 0;
+	for (let i = 0; i < a.length; i++) {
+		dot += (a[i] ?? 0) * (b[i] ?? 0);
+	}
+	return dot; // both vectors are L2-normalized
+}
+
+/**
+ * Measure the embedding runtime in the environment it actually ships to. Every timing
+ * estimate for this feature has been extrapolated from published benchmarks that do
+ * not match our configuration (BERT-base int8, single-threaded WASM, Electron); this
+ * replaces the extrapolation with a number.
+ *
+ * The cosine checks are a correctness guard, not a benchmark: if the JS path
+ * reproduces the Python reference (~0.93 related / ~0.88 unrelated), tokenization and
+ * CLS pooling are right; if it does not, the numbers are fast but meaningless.
+ */
+export async function embeddingDiagnostics(
+	location: LocalModelLocation,
+): Promise<EmbeddingDiagnostics> {
+	const transformers = await import('@huggingface/transformers');
+
+	const startInit = performance.now();
+	const extractor = await getPipeline(location);
+	const initMs = performance.now() - startInit;
+
+	const vectors: number[][] = [];
+	const perPaperMs: number[] = [];
+	for (const [title, abstract] of DIAG_PAPERS) {
+		const start = performance.now();
+		const output = await extractor(`${title}[SEP]${abstract}`, {
+			pooling: 'cls',
+			normalize: true,
+		});
+		perPaperMs.push(performance.now() - start);
+		vectors.push(Array.from(output.data, (value) => Number(value)));
+	}
+
+	const wasm = transformers.env.backends.onnx.wasm;
+	// wasmPaths is a prefix string OR a per-file record; the whole point of reading it
+	// back is to confirm it is our plugin folder and not the jsDelivr CDN default, so
+	// it must not collapse to '[object Object]'.
+	const paths = wasm?.wasmPaths;
+	return {
+		crossOriginIsolated: self.crossOriginIsolated,
+		numThreads: wasm?.numThreads,
+		wasmPaths:
+			paths === undefined
+				? '(unset)'
+				: typeof paths === 'string'
+					? paths
+					: JSON.stringify(paths),
+		initMs,
+		perPaperMs,
+		dimension: vectors[0]?.length ?? 0,
+		relatedCosine: cosine(vectors[0] ?? [], vectors[1] ?? []),
+		unrelatedCosine: cosine(vectors[0] ?? [], vectors[2] ?? []),
+	};
+}
+
 /**
  * Embed one paper. Returns undefined when the assets are absent or inference fails —
  * the caller keeps the baseline vector rather than blocking persistence (001 FR-021).

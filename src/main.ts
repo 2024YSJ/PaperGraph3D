@@ -17,7 +17,8 @@ import {
 	resolveModelLocation,
 	type LocalModelLocation,
 } from './collection/modelAssets';
-import { resetPipeline } from './collection/localTransformer';
+import { embeddingDiagnostics, resetPipeline } from './collection/localTransformer';
+import { EmbeddingDiagnosticsModal } from './ui/diagnosticsModal';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
@@ -97,6 +98,27 @@ function modelUnavailableNotice(): string {
 	);
 }
 
+function modelMissingNotice(): string {
+	return (
+		'PaperGraph3D: 임베딩 모델이 설치되어 있지 않습니다. 먼저 모델을 내려받으세요.\n' +
+		'The embedding model is not installed. Download it first.'
+	);
+}
+
+function diagnosticsRunningNotice(): string {
+	return (
+		'PaperGraph3D: 임베딩 런타임을 측정하는 중입니다...\n' +
+		'Measuring the embedding runtime...'
+	);
+}
+
+function diagnosticsFailedNotice(reason: string): string {
+	return (
+		`PaperGraph3D: 임베딩 런타임 측정에 실패했습니다 (${reason}). 개발자 콘솔을 확인하세요.\n` +
+		`Embedding diagnostics failed (${reason}). See the developer console.`
+	);
+}
+
 function reembedDoneNotice(count: number): string {
 	return (
 		`PaperGraph3D: 논문 ${count}편을 다시 임베딩했습니다.\n` +
@@ -129,6 +151,14 @@ export default class PaperGraph3DPlugin extends Plugin {
 			name: 'Download paper embedding model for offline use',
 			callback: () => {
 				void this.downloadModelCommand();
+			},
+		});
+
+		this.addCommand({
+			id: 'diagnose-embedding-runtime',
+			name: 'Diagnose embedding runtime',
+			callback: () => {
+				void this.diagnoseEmbeddingCommand();
 			},
 		});
 
@@ -284,6 +314,28 @@ export default class PaperGraph3DPlugin extends Plugin {
 			}
 		} catch {
 			// A converge pass is best-effort; papers keep whatever vector they have.
+		}
+	}
+
+	/**
+	 * Measure the embedding runtime and print it to the developer console. Temporary,
+	 * for the environment-gated verification T039 has always needed (the runtime's
+	 * speed can only be known inside a real Obsidian install).
+	 */
+	private async diagnoseEmbeddingCommand(): Promise<void> {
+		if (this.modelLocation === undefined) {
+			new Notice(modelMissingNotice());
+			return;
+		}
+		const notice = new Notice(diagnosticsRunningNotice(), 0);
+		try {
+			const diagnostics = await embeddingDiagnostics(this.modelLocation);
+			notice.hide();
+			new EmbeddingDiagnosticsModal(this.app, diagnostics).open();
+		} catch (error) {
+			notice.hide();
+			const reason = error instanceof Error ? error.message : String(error);
+			new Notice(diagnosticsFailedNotice(reason));
 		}
 	}
 
