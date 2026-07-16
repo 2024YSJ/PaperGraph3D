@@ -371,6 +371,50 @@ async function main() {
 	});
 
 	// =================================================================
+	// FR-008a — an API rate-limit / quota (429) surfaces one throttled Notice and
+	// still falls back to the abstract (never blocks persistence).
+	// =================================================================
+	await check('FR-008a.hook', 'Rate-limited → undefined AND notifyRateLimited fires once, throttled across a batch', async () => {
+		let notified = 0;
+		const hook = createSummarizeHook({
+			getProvider: () => fakeSummarizer('gemini', () => Promise.reject(new Error('rate-limited (status 429)'))).provider,
+			getCredential: () => 'k',
+			notifyCredentialProblem: () => {},
+			notifyRateLimited: () => { notified += 1; },
+		});
+		const first = await hook(citedInput());
+		const second = await hook(citedInput());
+		assert(first === undefined && second === undefined, 'a rate-limited call still falls back to the abstract (never blocks)');
+		assert(notified === 1, 'the whole batch surfaces the limit exactly once, not per paper (throttled)');
+	});
+	await check('FR-008a.unwired', 'Rate-limited with no notifyRateLimited wired → undefined, no throw', async () => {
+		const hook = createSummarizeHook({
+			getProvider: () => fakeSummarizer('openai', () => Promise.reject(new Error('rate-limited (status 429)'))).provider,
+			getCredential: () => 'k', notifyCredentialProblem: () => {},
+		});
+		const r = await hook(citedInput());
+		assert(r === undefined, 'an unwired notifyRateLimited degrades to the prior silent abstract fallback');
+	});
+	await check('FR-008a.openai-429', 'OpenAI adapter maps HTTP 429 to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { message: 'Rate limit reached' } } });
+		let message = '';
+		try { await openAiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message), 'a 429 is classified rate-limited (drives the throttled Notice)');
+	});
+	await check('FR-008a.anthropic-429', 'Claude adapter maps HTTP 429 to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { message: 'rate limited' } } });
+		let message = '';
+		try { await anthropicProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message), 'a 429 from the Anthropic adapter is classified rate-limited');
+	});
+	await check('FR-008a.gemini-429', 'Gemini adapter maps HTTP 429 RESOURCE_EXHAUSTED to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } } });
+		let message = '';
+		try { await geminiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message) && !/invalid-credentials/.test(message), 'a 429 quota error is classified rate-limited, not a credential problem');
+	});
+
+	// =================================================================
 	// FR-013 — disclosure copy authored for 008 to place
 	// =================================================================
 	await check('FR-013', 'Disclosure copy names what is sent (title+abstract) and plaintext storage', () => {

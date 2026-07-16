@@ -137,6 +137,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 					resolveSummarizationProvider(this.settings.summarizationProvider),
 				getCredential: () => this.settings.summarizationCredential,
 				notifyCredentialProblem: (message) => new Notice(message),
+				notifyRateLimited: (message) => new Notice(message),
 			}),
 			persist: (paper, summary) =>
 				paperStore.upsert({
