@@ -40,10 +40,41 @@ const context = await esbuild.context({
 	// The browser condition resolves to dist/transformers.web.js -> onnxruntime-web,
 	// which is pure JS + a WASM asset, and adds ~800 KB to the bundle (T039).
 	//
-	// The WASM asset itself (ort-wasm-simd-threaded.jsep.wasm, ~20 MB) still cannot
-	// be bundled; it is fetched alongside the model into the plugin folder and
-	// pointed at via env.backends.onnx.wasm.wasmPaths at runtime.
+	// Choosing the web build at build time is only half of it: both libraries sniff the
+	// environment at RUNTIME and Obsidian looks like Node to them, so see the defines
+	// below. The WASM binary itself (~20 MB) cannot be bundled either; it is downloaded
+	// into the plugin folder and handed to onnxruntime as bytes (modelAssets.ts).
 	platform: 'browser',
+	// onnxruntime derives `scriptSrc` from import.meta.url, which a CJS bundle does not
+	// have — it would be undefined, and ORT reads that as "I cannot tell where I came
+	// from", refuses to use the WASM glue compiled into this very bundle, and instead
+	// dynamic-imports it from a URL (which Obsidian's CSP has no reason to allow).
+	// Reporting the app's own document URL is both true and same-origin by
+	// construction, which is exactly the test ORT applies before trusting the embedded
+	// module. Without this the on-device embedding path cannot start.
+	define: {
+		// transformers.js decides which ONNX runtime to use with
+		//   IS_NODE_ENV = process?.release?.name === 'node'   -> use onnxruntime-node
+		// Obsidian is an Electron renderer, so that is true, and transformers.js reaches
+		// for onnxruntime-node — which this bundle does not contain and cannot contain
+		// (its prebuilt .node binaries are unbundleable, which is why we are on the web
+		// build at all). The result is env.backends.onnx === undefined and a runtime that
+		// never starts. The predicate is really asking "is onnxruntime-node available?",
+		// and for this bundle the answer is no, so answer it correctly. transformers.js
+		// then takes its web branch, which is also the branch that populates the device
+		// list and fetches model files instead of reading them off a filesystem we do not
+		// hand it paths into.
+		'process.release.name': JSON.stringify('electron-renderer'),
+
+		// onnxruntime derives `scriptSrc` from import.meta.url, which a CJS bundle does
+		// not have — it would be undefined, and ORT reads that as "I cannot tell where I
+		// came from", refuses to use the WASM glue compiled into this very bundle, and
+		// dynamic-imports it from a URL instead (which Obsidian's CSP has no reason to
+		// allow). Reporting the app's own document URL is both true and same-origin by
+		// construction, which is exactly the test ORT applies before trusting the
+		// embedded module.
+		'import.meta.url': 'globalThis.location.href',
+	},
 	format: 'cjs',
 	target: 'es2021',
 	logLevel: 'info',

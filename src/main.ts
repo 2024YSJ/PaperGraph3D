@@ -18,7 +18,7 @@ import {
 	type LocalModelLocation,
 } from './collection/modelAssets';
 import { embeddingDiagnostics, resetPipeline } from './collection/localTransformer';
-import { EmbeddingDiagnosticsModal } from './ui/diagnosticsModal';
+import { EmbeddingDiagnosticsModal, EmbeddingErrorModal } from './ui/diagnosticsModal';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
@@ -109,13 +109,6 @@ function diagnosticsRunningNotice(): string {
 	return (
 		'PaperGraph3D: 임베딩 런타임을 측정하는 중입니다...\n' +
 		'Measuring the embedding runtime...'
-	);
-}
-
-function diagnosticsFailedNotice(reason: string): string {
-	return (
-		`PaperGraph3D: 임베딩 런타임 측정에 실패했습니다 (${reason}). 개발자 콘솔을 확인하세요.\n` +
-		`Embedding diagnostics failed (${reason}). See the developer console.`
 	);
 }
 
@@ -328,14 +321,18 @@ export default class PaperGraph3DPlugin extends Plugin {
 			return;
 		}
 		const notice = new Notice(diagnosticsRunningNotice(), 0);
+		const location = this.modelLocation;
 		try {
-			const diagnostics = await embeddingDiagnostics(this.modelLocation);
+			const diagnostics = await embeddingDiagnostics(location);
 			notice.hide();
 			new EmbeddingDiagnosticsModal(this.app, diagnostics).open();
 		} catch (error) {
 			notice.hide();
-			const reason = error instanceof Error ? error.message : String(error);
-			new Notice(diagnosticsFailedNotice(reason));
+			// The resolved URLs are half the diagnosis: if they are malformed, or point
+			// somewhere other than the plugin folder, the failure is ours and not the
+			// runtime's.
+			const context = `modelsBaseUrl: ${location.modelsBaseUrl}`;
+			new EmbeddingErrorModal(this.app, error, context).open();
 		}
 	}
 

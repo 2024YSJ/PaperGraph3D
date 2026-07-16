@@ -41,7 +41,7 @@ let cachedLocation: string | undefined;
 let cachedPipeline: Promise<Extractor> | undefined;
 
 async function getPipeline(location: LocalModelLocation): Promise<Extractor> {
-	const key = `${location.modelsBaseUrl}|${location.wasmBaseUrl}`;
+	const key = location.modelsBaseUrl;
 	if (cachedLocation !== key || cachedPipeline === undefined) {
 		cachedLocation = key;
 		cachedPipeline = (async () => {
@@ -55,14 +55,22 @@ async function getPipeline(location: LocalModelLocation): Promise<Extractor> {
 			transformers.env.allowRemoteModels = false;
 			transformers.env.localModelPath = location.modelsBaseUrl;
 
-			// Point onnxruntime at the WASM binary in the plugin folder. Left unset,
-			// transformers.js defaults wasmPaths to a jsDelivr CDN URL and would reach
-			// the network on every load — the one remaining silent-network path.
 			const wasm = transformers.env.backends.onnx.wasm;
 			if (wasm === undefined) {
 				throw new Error('onnxruntime WASM backend unavailable');
 			}
-			wasm.wasmPaths = location.wasmBaseUrl;
+
+			// Clearing wasmPaths is load-bearing, not tidying. ORT skips its own embedded
+			// loader glue whenever a path prefix is set (`importWasmModule`) and
+			// dynamic-imports the glue from that prefix instead — which Obsidian's CSP
+			// blocks. transformers.js sets that prefix to a jsDelivr CDN URL at import
+			// time, so the embedded glue is unreachable, and the plugin silently reaches
+			// the network on every load (Principle IV), unless we take it back out.
+			wasm.wasmPaths = undefined;
+
+			// With no prefix to fetch from, hand ORT the binary itself: embedded glue,
+			// local bytes, nothing left to load.
+			wasm.wasmBinary = await location.readWasmBinary();
 
 			const createExtractor = transformers.pipeline as unknown as CreateExtractor;
 			return await createExtractor('feature-extraction', MODEL_ID, {
@@ -84,6 +92,8 @@ export function resetPipeline(): void {
 export interface EmbeddingDiagnostics {
 	readonly crossOriginIsolated: boolean;
 	readonly numThreads: number | undefined;
+	/** Must be ~21 MB: proof ORT took the binary from disk rather than the network. */
+	readonly wasmBinaryBytes: number | undefined;
 	readonly wasmPaths: string;
 	readonly initMs: number;
 	readonly perPaperMs: number[];
@@ -148,16 +158,18 @@ export async function embeddingDiagnostics(
 	}
 
 	const wasm = transformers.env.backends.onnx.wasm;
-	// wasmPaths is a prefix string OR a per-file record; the whole point of reading it
-	// back is to confirm it is our plugin folder and not the jsDelivr CDN default, so
-	// it must not collapse to '[object Object]'.
+	// Read back rather than assume: wasmPaths MUST be unset (any prefix means ORT went
+	// looking for its glue over the network instead of using the embedded copy), and
+	// wasmBinary MUST be populated. Reported as a string because a prefix can also be a
+	// per-file record, which would otherwise collapse to '[object Object]'.
 	const paths = wasm?.wasmPaths;
 	return {
 		crossOriginIsolated: self.crossOriginIsolated,
 		numThreads: wasm?.numThreads,
+		wasmBinaryBytes: wasm?.wasmBinary?.byteLength,
 		wasmPaths:
 			paths === undefined
-				? '(unset)'
+				? '(unset — correct)'
 				: typeof paths === 'string'
 					? paths
 					: JSON.stringify(paths),

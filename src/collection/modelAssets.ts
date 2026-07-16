@@ -21,6 +21,11 @@ const MODEL_REVISION = 'main';
 // WASM binary and the JS glue that loads it are one unit, and a mismatch is an
 // obscure runtime failure. Bump both together or not at all.
 const TRANSFORMERS_VERSION = '3.8.1';
+
+// Only the binary. The .mjs glue that loads it is compiled into main.js (esbuild
+// resolves onnxruntime-web to dist/ort.bundle.min.mjs, whose glue is embedded), so it
+// is never fetched — see the import.meta.url define in esbuild.config.mjs, which is
+// what lets ORT use that embedded copy.
 const WASM_FILE = 'ort-wasm-simd-threaded.jsep.wasm';
 
 // Relative to the plugin folder. transformers.js resolves a model as
@@ -187,15 +192,20 @@ export async function removeAssets(
 }
 
 /**
- * Where the downloaded assets live, as URLs the renderer can fetch. transformers.js's
- * web build has no filesystem access — it fetches every model file — so these must be
- * resource URLs (Obsidian's `app://`), not vault-relative or OS paths.
+ * How the downloaded assets reach the runtime. The two halves get there differently
+ * because the two consumers are different:
+ *
+ * - Model files go to transformers.js, whose web build has no filesystem access and
+ *   fetches them, so they must be resource URLs (Obsidian's `app://`).
+ * - The WASM binary goes to onnxruntime as raw bytes. Handing it a URL instead makes
+ *   ORT fetch it AND dynamic-import its loader glue from the same prefix, which
+ *   Obsidian's CSP blocks; handing over the bytes skips both.
  */
 export interface LocalModelLocation {
 	/** Base URL for models; transformers.js appends `/<model id>/<file>`. */
 	readonly modelsBaseUrl: string;
-	/** Base URL for the onnxruntime WASM binary. Ends with '/'. */
-	readonly wasmBaseUrl: string;
+	/** Reads the ~21 MB WASM binary. Lazy — nothing holds it until an embedding runs. */
+	readWasmBinary(): Promise<ArrayBuffer>;
 }
 
 function resourceBaseUrl(adapter: DataAdapter, dir: string): string {
@@ -220,8 +230,6 @@ export async function resolveModelLocation(
 	}
 	return {
 		modelsBaseUrl: resourceBaseUrl(adapter, paths.modelsDir),
-		// onnxruntime treats wasmPaths as a prefix, not a directory: without the
-		// trailing slash it would request '...wasmort-wasm-simd-threaded.jsep.wasm'.
-		wasmBaseUrl: `${resourceBaseUrl(adapter, paths.wasmDir)}/`,
+		readWasmBinary: () => adapter.readBinary(`${paths.wasmDir}/${WASM_FILE}`),
 	};
 }
