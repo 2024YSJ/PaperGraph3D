@@ -1,17 +1,14 @@
 import type { SummarizationInput } from '../../collection/pipeline';
 import { GENERATION_TIMEOUT_MS, MIN_GENERATED_TEXT_LENGTH } from './constants';
 import type {
-	EmbeddingFailureReason,
-	EmbeddingOutcome,
 	GenerationFailureReason,
 	GenerationOutcome,
-	LlmEmbeddingProvider,
 	SummarizationProvider,
 } from './types';
 
-// Internal to hook.ts/embeddingHook.ts — never exposed further (data-model.md §2).
-// Neither function here ever throws; every provider-call rejection is caught and
-// classified into a typed failure reason instead.
+// Internal to hook.ts — never exposed further (data-model.md §2). Never throws;
+// every provider-call rejection is caught and classified into a typed failure
+// reason instead.
 
 function isTooShort(text: string): boolean {
 	return text.trim().length < MIN_GENERATED_TEXT_LENGTH;
@@ -101,35 +98,4 @@ export async function runGeneration(
 			: '';
 
 	return { ok: true, summary, futureDirections: resolvedFutureDirections };
-}
-
-export async function runEmbeddingGeneration(
-	title: string,
-	abstract: string,
-	provider: LlmEmbeddingProvider,
-	credential: string,
-): Promise<EmbeddingOutcome> {
-	let raced: Awaited<ReturnType<typeof withTimeout<{ vector: number[]; model: string }>>>;
-	try {
-		raced = await withTimeout((signal) => provider.embed(title, abstract, credential, signal));
-	} catch (error) {
-		const reason: EmbeddingFailureReason = classifyRejection(error);
-		return { ok: false, reason };
-	}
-
-	if (!raced.ok) {
-		return { ok: false, reason: 'timeout' };
-	}
-
-	const { vector, model } = raced.value;
-
-	if (
-		!Array.isArray(vector) ||
-		vector.length === 0 ||
-		vector.some((value) => !Number.isFinite(value))
-	) {
-		return { ok: false, reason: 'invalid-vector' };
-	}
-
-	return { ok: true, vector, model };
 }

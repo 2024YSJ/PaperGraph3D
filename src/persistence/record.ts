@@ -87,6 +87,20 @@ export function migrate(raw: unknown): PaperRecord {
 	if (paper.embedding === undefined) paper.embedding = null;
 	if (paper.embeddingModel === undefined) paper.embeddingModel = null;
 	if (paper.embeddingSource === undefined) paper.embeddingSource = null;
+
+	// A vector from the retired LLM embedding provider is in a space nothing can
+	// reach any more, and 'llm' is no longer a valid embeddingSource — left alone it
+	// would fail isValidPaper() and read as corruption, losing the record. Reset it
+	// to pending instead and let reembedCorpus recompute it in the canonical space.
+	// Must run before validation, and is why this is a migration rather than a guard.
+	if (
+		paper.embeddingSource === 'llm' ||
+		(typeof paper.embeddingModel === 'string' && paper.embeddingModel.startsWith('llm:'))
+	) {
+		paper.embedding = null;
+		paper.embeddingModel = null;
+		paper.embeddingSource = null;
+	}
 	const now = Date.now();
 	return {
 		schemaVersion: CURRENT_SCHEMA_VERSION,
