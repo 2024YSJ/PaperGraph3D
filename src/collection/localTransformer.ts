@@ -1,72 +1,108 @@
-import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import type { EmbeddingResult } from './embedding';
+import { MODEL_ID, type LocalModelLocation } from './modelAssets';
 
-// User-supplied on-device local transformer embedding provider (002 FR-046). The
-// user selects this provider and points `localEmbeddingModel` at a model by a
-// local file path or a URL; this module runs that transformer on-device and mean-
-// pools + L2-normalizes it into a sentence embedding. The @huggingface/transformers
-// runtime is loaded via a LAZY DYNAMIC IMPORT so the heavy dependency is pulled in
-// only when this provider is actually selected — never on a normal load. Any
-// failure (runtime absent, model unreadable, inference error) returns undefined so
-// the caller keeps the bundled baseline (pending upgrade), never blocking
-// persistence (002 FR-045).
+// On-device SPECTER2 embedding (002 FR-046). SPECTER2 is a BERT-base encoder trained
+// on 6M citation triplets across 23 fields of study, with the `proximity` adapter
+// merged into the ONNX graph at conversion time — citation-trained representations are
+// what make a similarity graph meaningful (a plain scientific LM like SciBERT scores
+// 59.6 on SciDocs vs SPECTER's 80.0; the gap is the citation objective, not the domain).
+//
+// The model is fixed, not user-selectable: the corpus's canonical embedding space must
+// be exactly one space for the graph feature to project papers together (001 FR-020),
+// and a swappable model means a swappable dimensionality.
+//
+// Weights are not bundled — they are downloaded once into the plugin folder (see
+// modelAssets.ts) and everything after that is offline. Until they are present this
+// module reports unavailable and callers keep the bundled baseline (002 FR-044/FR-045).
 
-// One cached pipeline per model spec: initializing a transformer is expensive, so
-// a model is loaded once per session and reused across a collection batch. A
-// changed model spec rebuilds the cache (and is a provider change that re-embeds).
-let cachedModelSpec: string | undefined;
-let cachedPipeline: Promise<FeatureExtractionPipeline> | undefined;
+// The canonical embedding-space id, shaped like the baseline's `local-hashtf-v1-d2048`.
+// The dimension is baked in, so any future model change is necessarily a different id
+// and reembed.ts converges the corpus onto it (001 FR-022).
+export const SPECTER2_EMBEDDING_MODEL = 'local-specter2-proximity-v1-d768';
 
-async function getPipeline(
-	modelSpec: string,
-): Promise<FeatureExtractionPipeline> {
-	if (cachedModelSpec !== modelSpec || cachedPipeline === undefined) {
-		cachedModelSpec = modelSpec;
+export const SPECTER2_EMBEDDING_DIM = 768;
+
+// The surface we use is this narrow.
+type Extractor = (
+	text: string,
+	options: { pooling: 'cls'; normalize: boolean },
+) => Promise<{ data: ArrayLike<number> }>;
+
+// pipeline() is generic over every task type, and resolving it produces a union
+// TypeScript refuses to represent ("union type that is too complex"). Narrowing the
+// signature to the one task we call sidesteps the instantiation entirely.
+type CreateExtractor = (
+	task: 'feature-extraction',
+	model: string,
+	options: { dtype: 'q8' },
+) => Promise<Extractor>;
+
+let cachedLocation: string | undefined;
+let cachedPipeline: Promise<Extractor> | undefined;
+
+async function getPipeline(location: LocalModelLocation): Promise<Extractor> {
+	const key = `${location.modelsBaseUrl}|${location.wasmBaseUrl}`;
+	if (cachedLocation !== key || cachedPipeline === undefined) {
+		cachedLocation = key;
 		cachedPipeline = (async () => {
 			const transformers = await import('@huggingface/transformers');
-			// The user may point at either a local file path (fully offline) or a
-			// remote URL / repo id (a user-initiated download, disclosed per
-			// constitution Principle IV).
+
+			// Local-only, always. allowRemoteModels=false is what makes "offline after
+			// first download" a guarantee rather than an intention: if an asset is
+			// missing the load fails loudly here instead of silently reaching the
+			// network (constitution Principle IV).
 			transformers.env.allowLocalModels = true;
-			transformers.env.allowRemoteModels = true;
-			return transformers.pipeline('feature-extraction', modelSpec);
+			transformers.env.allowRemoteModels = false;
+			transformers.env.localModelPath = location.modelsBaseUrl;
+
+			// Point onnxruntime at the WASM binary in the plugin folder. Left unset,
+			// transformers.js defaults wasmPaths to a jsDelivr CDN URL and would reach
+			// the network on every load — the one remaining silent-network path.
+			const wasm = transformers.env.backends.onnx.wasm;
+			if (wasm === undefined) {
+				throw new Error('onnxruntime WASM backend unavailable');
+			}
+			wasm.wasmPaths = location.wasmBaseUrl;
+
+			const createExtractor = transformers.pipeline as unknown as CreateExtractor;
+			return await createExtractor('feature-extraction', MODEL_ID, {
+				// Resolves to onnx/model_quantized.onnx. The fp32 export is a small graph
+				// plus a 420 MB external-data sidecar, so int8 is the only shipped weight.
+				dtype: 'q8',
+			});
 		})();
 	}
 	return cachedPipeline;
 }
 
-// The `embeddingModel` prefix for a given model spec (without the trailing
-// dimension). Re-embedding (002 FR-045) uses this to tell — cheaply, without
-// running inference — whether a stored paper is already in this model's canonical
-// space. The trailing ':' disambiguates specs where one is a prefix of another.
-export function localTransformerModelIdPrefix(modelSpec: string): string {
-	const normalized = modelSpec.trim().replace(/\s+/g, '_');
-	return `local-transformer:${normalized}:`;
+/** Drop the cached pipeline, e.g. after assets are re-downloaded or removed. */
+export function resetPipeline(): void {
+	cachedLocation = undefined;
+	cachedPipeline = undefined;
 }
 
-// A stable identifier for the produced embedding space, so switching to a
-// different model (a different `embeddingModel`) is detected as a provider change
-// that re-embeds the corpus (001 FR-020/FR-022). Includes the output dimension,
-// which varies by model.
-function embeddingModelId(modelSpec: string, dimension: number): string {
-	return `${localTransformerModelIdPrefix(modelSpec)}d${dimension}`;
-}
-
-export async function localTransformerEmbedding(
+/**
+ * Embed one paper. Returns undefined when the assets are absent or inference fails —
+ * the caller keeps the baseline vector rather than blocking persistence (001 FR-021).
+ * Throws nothing; upgradeEmbedding()'s try/catch is the outer net.
+ */
+export async function specter2Embedding(
 	title: string,
 	abstract: string,
-	modelSpec: string,
+	location: LocalModelLocation,
 ): Promise<EmbeddingResult | undefined> {
-	const extractor = await getPipeline(modelSpec);
-	const text = abstract.length > 0 ? `${title} ${abstract}` : title;
+	const extractor = await getPipeline(location);
 
-	// Mean-pool over tokens and L2-normalize — the standard sentence-embedding
-	// reduction, so a dot product is a cosine similarity (matches 001 FR-019).
-	const output = await extractor(text, { pooling: 'mean', normalize: true });
+	// SPECTER2's trained input format: title, a [SEP], then the abstract. Verified that
+	// a literal '[SEP]' in the string tokenizes identically to tokenizer.sep_token, so
+	// this matches how the model was trained. A space-joined string would quietly
+	// produce worse embeddings, as would mean pooling instead of the CLS token.
+	const text = abstract.length > 0 ? `${title}[SEP]${abstract}` : title;
+	const output = await extractor(text, { pooling: 'cls', normalize: true });
 	const embedding = Array.from(output.data, (value) => Number(value));
 
 	if (
-		embedding.length === 0 ||
+		embedding.length !== SPECTER2_EMBEDDING_DIM ||
 		embedding.some((value) => !Number.isFinite(value))
 	) {
 		return undefined;
@@ -74,7 +110,7 @@ export async function localTransformerEmbedding(
 
 	return {
 		embedding,
-		embeddingModel: embeddingModelId(modelSpec, embedding.length),
+		embeddingModel: SPECTER2_EMBEDDING_MODEL,
 		embeddingSource: 'local',
 	};
 }

@@ -10,6 +10,14 @@ import { startScheduler, type SchedulerHandle } from './collection/scheduler';
 import { runSubscriptionCheck } from './collection/pipeline';
 import type { PipelineHooks } from './collection/pipeline';
 import { reembedCorpus } from './collection/reembed';
+import {
+	areAssetsPresent,
+	assetPaths,
+	downloadAssets,
+	resolveModelLocation,
+	type LocalModelLocation,
+} from './collection/modelAssets';
+import { resetPipeline } from './collection/localTransformer';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
@@ -51,14 +59,78 @@ function summarizationUnconfiguredNotice(): string {
 	);
 }
 
+// 002 FR-046. The model is fetched once, then every embedding runs on-device and no
+// paper data leaves the vault. The size and the network access are stated up front
+// rather than discovered (constitution Principle IV).
+function modelDownloadStartNotice(): string {
+	return (
+		'PaperGraph3D: 논문 임베딩 모델(SPECTER2, 약 130MB)을 내려받는 중입니다. 이후에는 완전히 오프라인으로 동작합니다.\n' +
+		'Downloading the paper embedding model (SPECTER2, ~130 MB). It runs fully offline afterwards.'
+	);
+}
+
+function modelDownloadDoneNotice(): string {
+	return (
+		'PaperGraph3D: 임베딩 모델 준비 완료. 저장된 논문을 배경에서 다시 임베딩합니다.\n' +
+		'Embedding model ready. Re-embedding saved papers in the background.'
+	);
+}
+
+function modelDownloadFailedNotice(reason: string): string {
+	return (
+		`PaperGraph3D: 임베딩 모델을 내려받지 못했습니다 (${reason}). 기본 임베딩으로 계속 동작하며, 다시 시도할 수 있습니다.\n` +
+		`Couldn't download the embedding model (${reason}). The baseline embedding stays in use; you can retry.`
+	);
+}
+
+function modelAlreadyPresentNotice(): string {
+	return (
+		'PaperGraph3D: 임베딩 모델이 이미 설치되어 있습니다.\n' +
+		'The embedding model is already installed.'
+	);
+}
+
+function modelUnavailableNotice(): string {
+	return (
+		'PaperGraph3D: 플러그인 폴더를 찾을 수 없어 모델을 설치할 수 없습니다.\n' +
+		"Can't install the model: the plugin folder could not be located."
+	);
+}
+
+function reembedDoneNotice(count: number): string {
+	return (
+		`PaperGraph3D: 논문 ${count}편을 다시 임베딩했습니다.\n` +
+		`Re-embedded ${count} paper(s).`
+	);
+}
+
 export default class PaperGraph3DPlugin extends Plugin {
 	settings!: PluginSettings;
 	private scheduler?: SchedulerHandle;
+	/** Resolved once the SPECTER2 assets are on disk; undefined keeps papers on the baseline. */
+	private modelLocation?: LocalModelLocation;
 
 	async onload() {
 		await this.loadSettings();
 
 		this.addSettingTab(new PaperGraph3DSettingTab(this.app, this));
+
+		// Pick up assets downloaded in a previous session. Never downloads — that
+		// requires the explicit command below (constitution Principle IV).
+		this.modelLocation = await this.resolveModelLocation();
+
+		// Command ids are stable once released (AGENTS.md) — this one is the download
+		// action itself, not the temporary-UI framing, so 008's settings screen can
+		// reuse it rather than renaming it.
+		this.addCommand({
+			id: 'download-embedding-model',
+			// The download size is disclosed in the notice this opens, before anything
+			// is fetched — the command name stays sentence case per the Obsidian lint rules.
+			name: 'Download paper embedding model for offline use',
+			callback: () => {
+				void this.downloadModelCommand();
+			},
+		});
 
 		// The scheduler handle is assigned below, but the store's callbacks (fired only on
 		// later user actions) reference it through this closure, so the wiring order is safe.
@@ -101,15 +173,11 @@ export default class PaperGraph3DPlugin extends Plugin {
 		);
 		await paperStore.load();
 
-		// Converge the persisted corpus on the currently-selected canonical embedding
-		// space (001 FR-022 / 002 FR-045) — e.g. after the user switched embedding
-		// provider, or a collection-time upgrade was left pending. Runs in the
-		// background, off the load path, touching only off-canonical papers.
-		void reembedCorpus(paperStore, {
-			provider: this.settings.embeddingProvider ?? 'bundled',
-			localModel: this.settings.localEmbeddingModel,
-			credential: this.settings.embeddingCredential,
-		}).catch(() => undefined);
+		// Converge the persisted corpus on the canonical SPECTER2 space (002 FR-045) —
+		// papers collected before the model was downloaded, or whose collection-time
+		// upgrade was left pending. Runs in the background, off the load path, touching
+		// only off-canonical papers. A no-op until the model is present.
+		void this.reembedInBackground(paperStore);
 
 		// 004: warn once at load if summarization is enabled but unconfigured, so the
 		// user isn't left wondering why notes still show the raw abstract (FR-006).
@@ -167,12 +235,10 @@ export default class PaperGraph3DPlugin extends Plugin {
 					() => this.settings.semanticScholarApiKey,
 					// enrich uses its default (Semantic Scholar batch lookup).
 					undefined,
-					// Live embedding-provider selection (001 FR-022 / 002 FR-045/FR-046).
-					() => ({
-						provider: this.settings.embeddingProvider ?? 'bundled',
-						localModel: this.settings.localEmbeddingModel,
-						credential: this.settings.embeddingCredential,
-					}),
+					// Live model location (002 FR-045/FR-046) — undefined until the user
+					// has downloaded the model, which keeps papers on the baseline rather
+					// than holding them back.
+					() => ({ location: this.modelLocation }),
 				),
 			onFailure: (subscription, reason) => {
 				new Notice(subscriptionFailureNotice(subscription, reason));
@@ -186,6 +252,75 @@ export default class PaperGraph3DPlugin extends Plugin {
 	onunload() {
 		// The scheduler's recurring tick is registered via registerInterval, so Obsidian
 		// clears it automatically on unload — no explicit stop is needed (Principle II).
+	}
+
+	private assetPaths() {
+		// manifest.dir is typed optional but is always set for a loaded plugin; treat an
+		// absent one as "no local model" rather than guessing a path into the vault.
+		const dir = this.manifest.dir;
+		return dir === undefined ? undefined : assetPaths(dir);
+	}
+
+	private async resolveModelLocation(): Promise<LocalModelLocation | undefined> {
+		const paths = this.assetPaths();
+		if (paths === undefined) {
+			return undefined;
+		}
+		try {
+			return await resolveModelLocation(this.app.vault.adapter, paths);
+		} catch {
+			return undefined;
+		}
+	}
+
+	private async reembedInBackground(store: PaperStore): Promise<void> {
+		if (this.modelLocation === undefined) {
+			return;
+		}
+		try {
+			const summary = await reembedCorpus(store, { location: this.modelLocation });
+			if (summary.reembedded > 0) {
+				new Notice(reembedDoneNotice(summary.reembedded));
+			}
+		} catch {
+			// A converge pass is best-effort; papers keep whatever vector they have.
+		}
+	}
+
+	/**
+	 * Download the on-device embedding model. Explicit command, never automatic: this
+	 * is ~130 MB fetched from Hugging Face and jsDelivr, the plugin's only outbound
+	 * request besides paper collection, and it must be the user's decision
+	 * (constitution Principle IV). A temporary entry point until 008's settings UI.
+	 */
+	private async downloadModelCommand(): Promise<void> {
+		const paths = this.assetPaths();
+		if (paths === undefined) {
+			new Notice(modelUnavailableNotice());
+			return;
+		}
+		if (await areAssetsPresent(this.app.vault.adapter, paths)) {
+			new Notice(modelAlreadyPresentNotice());
+			return;
+		}
+
+		const notice = new Notice(modelDownloadStartNotice(), 0);
+		try {
+			await downloadAssets(this.app.vault.adapter, paths, (progress) => {
+				notice.setMessage(
+					`PaperGraph3D: 임베딩 모델 다운로드 중 (${progress.fileIndex}/${progress.fileCount}) ${progress.fileName}\n` +
+						`Downloading embedding model (${progress.fileIndex}/${progress.fileCount}) ${progress.fileName}`,
+				);
+			});
+			resetPipeline();
+			this.modelLocation = await this.resolveModelLocation();
+			notice.hide();
+			new Notice(modelDownloadDoneNotice());
+		} catch (error) {
+			notice.hide();
+			const reason = error instanceof Error ? error.message : String(error);
+			new Notice(modelDownloadFailedNotice(reason));
+		}
 	}
 
 	async loadSettings() {

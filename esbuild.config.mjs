@@ -30,14 +30,20 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
-		// Optional local-transformer embedding runtime (002 FR-046), loaded via a
-		// lazy dynamic import only when the user selects that provider. Kept external
-		// so the heavy onnxruntime/WASM dependency never bloats or breaks the core
-		// bundle; making it load in a shipped desktop plugin is a follow-up that
-		// needs verification in the real Obsidian environment.
-		'@huggingface/transformers',
 		...builtinModules,
 	],
+	// Obsidian installs only main.js/manifest.json/styles.css, so the embedding
+	// runtime (@huggingface/transformers) has to be INSIDE main.js — it can't ship
+	// as a sibling file. Bundling it is only possible on the browser platform: the
+	// package's exports map routes `node` to onnxruntime-node, whose prebuilt
+	// *.node binaries esbuild cannot load ("No loader is configured for '.node'").
+	// The browser condition resolves to dist/transformers.web.js -> onnxruntime-web,
+	// which is pure JS + a WASM asset, and adds ~800 KB to the bundle (T039).
+	//
+	// The WASM asset itself (ort-wasm-simd-threaded.jsep.wasm, ~20 MB) still cannot
+	// be bundled; it is fetched alongside the model into the plugin folder and
+	// pointed at via env.backends.onnx.wasm.wasmPaths at runtime.
+	platform: 'browser',
 	format: 'cjs',
 	target: 'es2021',
 	logLevel: 'info',

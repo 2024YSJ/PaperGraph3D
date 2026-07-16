@@ -92,12 +92,13 @@ export async function runCollectionPass(
 			// Leave the embedding pending (null); persistence still proceeds.
 		}
 
-		// FR-045: if a non-bundled canonical provider is selected, upgrade the
-		// baseline to it at this seam (read live per paper). An upgrade failure
-		// returns undefined and the baseline is kept as pending upgrade — embedding
-		// never blocks persistence (001 FR-021 / 002 FR-046).
+		// FR-045: upgrade the baseline to the canonical SPECTER2 vector at this seam
+		// (read live per paper, so a model downloaded mid-batch takes effect for the
+		// rest of it). Returns undefined while the model is absent or on an inference
+		// failure, and the baseline is kept as pending upgrade — embedding never blocks
+		// persistence (001 FR-021 / 002 FR-046). reembedCorpus converges it later.
 		const embeddingConfig = getEmbeddingConfig?.();
-		if (embeddingConfig !== undefined && embeddingConfig.provider !== 'bundled') {
+		if (embeddingConfig !== undefined) {
 			const upgraded = await upgradeEmbedding(
 				paper.title,
 				paper.abstract,
