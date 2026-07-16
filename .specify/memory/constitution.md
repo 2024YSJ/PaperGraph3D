@@ -1,13 +1,27 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0 (amendment 2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
+Version change: 1.2.0 → 1.3.0 (amendment 2026-07-16: the three-provider embedding
+  selector is retired in favour of ONE fixed on-device model (SPECTER2). Embedding
+  becomes unconditionally local — no API key can enable it and no paper data leaves
+  the vault for it — while the model's weights become a one-time, opt-in download.)
+Rationale: the selector was unbuildable, not merely undesirable. Only vectors sharing
+  one embedding space can be projected together by the graph (001 FR-020), so a
+  user-chosen provider was a user-chosen dimensionality; the corpus could not survive
+  the choice. Fixing the model makes a mixed-dimensionality corpus unrepresentable.
 Modified principles:
-  - IV. Transparent Use of Sensitive APIs — the user-supplied local-transformer
-    URL option is a user-initiated model download, disclosed as opt-in external
-    access alongside the LLM API providers
+  - IV. Transparent Use of Sensitive APIs — text unchanged. What it now covers
+    changes: the LLM-embedding disclosure is withdrawn (that path no longer
+    exists), and the one-time model-weights download is disclosed in its place.
+    The summarization API disclosure is unaffected.
 New/updated sections: Additional Constraints → "Platform target (desktop-only)" bullet
-  updated for the three-provider embedding model and the URL-fetch disclosure
+  rewritten for the single fixed on-device model and the weights download
+MINOR, not MAJOR: no principle is removed or redefined; the guidance under
+  Principle IV contracts (one fewer external data path) and Additional Constraints
+  is narrowed. Per Governance, a contraction of described options is MINOR.
+Templates/specs requiring follow-up: 001 FR-019/FR-020/FR-022, 002 FR-044/FR-045/
+  FR-046 + tasks Phase 9, 004 FR-010–FR-013, specs-input/006 FR-009
+Prior amendment: 1.1.0 → 1.2.0 (2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
 Prior amendment: 1.0.0 → 1.1.0 (2026-07-07: desktop-only platform decision + LLM embedding disclosure; Principles I and IV)
 Prior history: [TEMPLATE] → 1.0.0 (initial concrete ratification); modified principles then: N/A (first time placeholders filled in)
 Added sections:
@@ -132,19 +146,21 @@ including the maintainer's own.
   — `manifest.json` `isDesktopOnly: true`. This is the deliberate, documented
   exception Principle I allows: the 3D visualization (007) and native local
   content-embedding + 2D projection (002/006) depend on desktop/Electron
-  capabilities not viable on Obsidian mobile. Content embeddings come from one
-  of three explicitly-selected providers (001 FR-022): a **bundled local
-  baseline** (default, fully offline, no setup), a **user-supplied local
-  transformer** the user points to by file path or URL and which runs
-  **on-device** (no paper data leaves the vault), or an **external LLM API**
-  (Claude / Gemini / OpenAI). Two of these involve external access: the
-  local-transformer **URL** option performs a user-initiated model download,
-  and the LLM API option sends title+abstract to the provider; like all
-  sensitive-API use these are opt-in, gated (a URL/path or API key the user
-  supplies), and disclosed per Principle IV. Selecting the bundled baseline or a
-  local-path model is fully offline. The plugin still functions fully offline by
-  default (bundled baseline embedding, no summaries) with all external options
-  off.
+  capabilities not viable on Obsidian mobile. Content embeddings are produced
+  **on-device by one fixed model** — SPECTER2, a citation-trained scientific
+  document encoder — and are **not user-selectable**. This is a constraint, not a
+  preference: only vectors sharing one embedding space can be projected together
+  by the graph (001 FR-020), so a selectable provider is a selectable
+  dimensionality, and no corpus survives the choice. A **bundled offline
+  baseline** covers papers collected before the model is present; the corpus
+  converges on the canonical space once it is. **No paper data ever leaves the
+  vault for embedding**, and no API key can enable it.
+  The model's weights are too large to ship inside `main.js` and Obsidian
+  installs nothing else, so they are **downloaded once into the plugin folder** —
+  a user-initiated fetch of a public model, opt-in and disclosed per Principle
+  IV, never automatic. Every embedding after that is offline. The plugin
+  functions fully offline by default (baseline embedding, no summaries) with all
+  external options off.
 - **Toolchain lock-in**: npm is the package manager and esbuild is the
   bundler; `esbuild.config.mjs` and the npm scripts are the source of truth
   for how `src/main.ts` becomes `main.js`.
@@ -193,4 +209,4 @@ there for needed edits. `/speckit-plan` MUST cite the specific principles a
 feature's design satisfies or deviates from; deviations require justification
 recorded in that feature's `plan.md` Complexity Tracking section.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-09
+**Version**: 1.3.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-16
