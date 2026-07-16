@@ -1,8 +1,13 @@
 # Spec-Test Report: 005-manual-paper-refresh
 
+> **[Re-run 2026-07-16 — 34 passed, 0 failed, 3 skipped]** Unchanged by the embedding redesign; re-run to
+> confirm no regression. Suites are built with `--external:@huggingface/transformers`:
+> the embedding runtime is now a real dependency of `src/`, and the lazy import is
+> never reached by these tests.
+
 - **Spec**: `specs/005-manual-paper-refresh/spec.md` (v2, includes the 2026-07-11 FR-015 correction — batched arXiv content re-fetch — and the new FR-018b large-run confirmation gate)
-- **Branch**: `develop-feature/005-manual-paper-refresh`
-- **Date**: 2026-07-11
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-16
 - **`tsc --noEmit`**: PASS (no errors)
 - **Result**: **34 passed, 0 failed, 3 skipped**
 

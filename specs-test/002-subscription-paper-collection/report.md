@@ -1,10 +1,21 @@
 # Spec-test report: 002-subscription-paper-collection
 
+> **[Re-run 2026-07-16 — 28 passed, 0 failed, 16 skipped]**
+>
+> This suite had not compiled since merge commit `a657b9e`, which introduced an
+> `SC-014` check without its closing `});`, without the `startScheduler` /
+> `enrichFromSemanticScholar` imports it needs, and without the fixed `now` clock the
+> other scheduler checks declare. `EC-8`/`EC-9`/`SC-014` therefore never ran, and the
+> counts below were from before that merge. All three now pass — the merge damage was
+> mechanical, not a real defect in `src/`. Found only because the embedding redesign
+> forced a full re-run: these suites execute on demand (`/spec-test`), so nothing was
+> watching them in between.
+
 - **Spec**: `specs/002-subscription-paper-collection/spec.md`
-- **Source branch**: `develop`
-- **Date**: 2026-07-09
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-16
 - **`tsc --noEmit`**: PASS
-- **Result**: **25 passed, 0 failed, 16 skipped**
+- **Result**: **28 passed, 0 failed, 16 skipped**
 
 Verifies the current `src/collection/*` + `src/models/*` implementation against the
 spec's acceptance scenarios, success criteria, and edge cases. **Deterministic**: no

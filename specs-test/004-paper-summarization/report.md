@@ -1,10 +1,18 @@
 # Spec-test report: 004-paper-summarization
 
+> **[Re-run 2026-07-16 — 25 passed, 0 failed, 3 skipped]**
+>
+> The LLM embedding assertions (`FR-011`, `EMB.1`–`EMB.5`, and the `isCanonical-direct`
+> / `smoke-openai` skips) are removed: that provider is retired and the code under test
+> no longer exists. `FR-013` now asserts the embedding disclosure copy is *absent* —
+> a Principle IV disclosure outliving its data path is how the copy starts lying about
+> what leaves the vault. Every summarization case is unchanged and still passes.
+
 - **Spec**: `specs/004-paper-summarization/spec.md`
-- **Source branch**: `004-paper-summarization`
-- **Date**: 2026-07-11
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-16
 - **`tsc --noEmit`**: PASS
-- **Result**: **25 passed, 0 failed, 5 skipped**
+- **Result**: **25 passed, 0 failed, 3 skipped**
 
 Verifies the current `src/services/summarization/*` implementation (plus the settings
 fields and the two additive `src/collection/*` seam completions this feature owns)
