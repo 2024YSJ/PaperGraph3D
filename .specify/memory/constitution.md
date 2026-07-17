@@ -1,26 +1,29 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 → 1.3.0 (amendment 2026-07-16: the three-provider embedding
-  selector is retired in favour of ONE fixed on-device model (SPECTER2). Embedding
-  becomes unconditionally local — no API key can enable it and no paper data leaves
-  the vault for it — while the model's weights become a one-time, opt-in download.)
-Rationale: the selector was unbuildable, not merely undesirable. Only vectors sharing
-  one embedding space can be projected together by the graph (001 FR-020), so a
-  user-chosen provider was a user-chosen dimensionality; the corpus could not survive
-  the choice. Fixing the model makes a mixed-dimensionality corpus unrepresentable.
+Version change: 1.3.0 → 2.0.0 (amendment 2026-07-17: Principle V's UX clause is
+  redefined from bilingual (Korean + English) to English-only. All user-facing text
+  — commands, settings labels, notices, modals — is now plain English; the
+  requirement to serve Korean and English users in parallel is dropped. The
+  English-only-code half of the principle is unchanged.)
+Rationale: the project ships as public open source with an international contributor
+  base, and a single UI language keeps user-facing copy consistent and predictable
+  while removing the upkeep of parallel translations that drift out of sync.
 Modified principles:
-  - IV. Transparent Use of Sensitive APIs — text unchanged. What it now covers
-    changes: the LLM-embedding disclosure is withdrawn (that path no longer
-    exists), and the one-time model-weights download is disclosed in its place.
-    The summarization API disclosure is unaffected.
-New/updated sections: Additional Constraints → "Platform target (desktop-only)" bullet
-  rewritten for the single fixed on-device model and the weights download
-MINOR, not MAJOR: no principle is removed or redefined; the guidance under
-  Principle IV contracts (one fewer external data path) and Additional Constraints
-  is narrowed. Per Governance, a contraction of described options is MINOR.
-Templates/specs requiring follow-up: 001 FR-019/FR-020/FR-022, 002 FR-044/FR-045/
-  FR-046 + tasks Phase 9, 004 FR-010–FR-013, specs-input/006 FR-009
+  - V. Bilingual UX, English-Only Code → V. English-Only UX and Code — the
+    bilingual UX mandate is removed and replaced with an English-only UX mandate;
+    the English-only-code requirement is retained.
+MAJOR, not MINOR: this is a backward-incompatible redefinition of a principle —
+  bilingual user-facing copy that previously satisfied Principle V now violates it.
+  Per Governance, redefinition of a principle is MAJOR.
+Follow-up applied: CLAUDE.md's constitution summary updated ("Bilingual UX/
+  English-only code" → "English-only UX and code"). AGENTS.md has no bilingual-UX
+  clause to change. Completed features' (001–005) Constitution Check records in
+  specs/*/plan.md and tasks.md are point-in-time evaluations against the
+  then-current constitution and are left as historical record, not rewritten.
+Templates: .specify/templates/* — no edit needed (no template encodes the UX
+  language rule; the plan Constitution Check reads the principles dynamically).
+Prior amendment: 1.2.0 → 1.3.0 (2026-07-16: the three-provider embedding selector retired in favour of ONE fixed on-device model (SPECTER2); embedding becomes unconditionally local with a one-time opt-in weights download)
 Prior amendment: 1.1.0 → 1.2.0 (2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
 Prior amendment: 1.0.0 → 1.1.0 (2026-07-07: desktop-only platform decision + LLM embedding disclosure; Principles I and IV)
 Prior history: [TEMPLATE] → 1.0.0 (initial concrete ratification); modified principles then: N/A (first time placeholders filled in)
@@ -29,7 +32,7 @@ Added sections:
   - II. Lifecycle-Safe Resource Management (NON-NEGOTIABLE)
   - III. Manifest Identity Stability
   - IV. Transparent Use of Sensitive APIs
-  - V. Bilingual UX, English-Only Code
+  - V. English-Only UX and Code
   - VI. Open-Source Code Quality & Extensibility
   - Additional Constraints (technology stack, style, security/privacy)
   - Development Workflow (build/lint gates, Spec Kit lifecycle)
@@ -112,18 +115,17 @@ MUST be off or fully disclosed at first use.
 access to their vault need to know exactly when that trust is extended
 outside it.
 
-### V. Bilingual UX, English-Only Code
+### V. English-Only UX and Code
 
-User-facing text (commands, settings labels, notices, modals) MUST stay
-understandable to both Korean- and English-speaking users — provide both
-languages where they diverge, or default to plain, translation-friendly
-English. Code comments, identifiers, commit messages, and internal docs MUST
-be written in English regardless of UI language, so the codebase reads
-uniformly for any contributor.
+User-facing text (commands, settings labels, notices, modals) MUST be written
+in plain, clear, translation-friendly English. Code comments, identifiers,
+commit messages, and internal docs MUST also be written in English, so the
+codebase and its interface read uniformly for any contributor.
 
-**Rationale**: The user base spans Korean and English speakers, but a public
-open-source codebase needs one consistent language for maintainers who join
-later.
+**Rationale**: The project ships as public open source with an international
+contributor base; a single UI language keeps user-facing copy consistent and
+predictable and removes the upkeep of parallel translations that drift out of
+sync.
 
 ### VI. Open-Source Code Quality & Extensibility
 
@@ -209,4 +211,4 @@ there for needed edits. `/speckit-plan` MUST cite the specific principles a
 feature's design satisfies or deviates from; deviations require justification
 recorded in that feature's `plan.md` Complexity Tracking section.
 
-**Version**: 1.3.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-16
+**Version**: 2.0.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-17
