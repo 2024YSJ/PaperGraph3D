@@ -37,8 +37,7 @@ export function createSummarizeHook(
 			if (outcome.reason === 'invalid-credentials') {
 				config.notifyCredentialProblem(
 					`Summarization credential was rejected (provider: ${provider.id}). ` +
-						'Check the configured credential in settings. ' +
-						'요약 자격 증명이 거부되었습니다. 설정에서 자격 증명을 확인하세요.',
+						'Check the configured credential in settings.',
 				);
 			}
 			// Every other failure reason (timeout, provider-error, empty-or-too-short)

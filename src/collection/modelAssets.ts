@@ -12,20 +12,23 @@ import { requestUrl, type DataAdapter } from 'obsidian';
 // This is a user-initiated external download and MUST stay opt-in and disclosed
 // (constitution Principle IV) — nothing here may run without an explicit user act.
 
-// The model repo is a straight ONNX conversion of allenai/specter2_base with the
-// allenai/specter2 proximity adapter merged into the graph (Apache-2.0).
-const MODEL_REPO = 'papergraph3d/specter2-proximity-onnx';
-const MODEL_REVISION = 'main';
+// Assets are hosted on the plugin's own GitHub release: the model files are a straight
+// ONNX conversion of allenai/specter2_base with the allenai/specter2 proximity adapter
+// merged into the graph (Apache-2.0), plus the matching onnxruntime WASM binary. A
+// dedicated model tag keeps the ~130 MB out of the plugin's SemVer releases, and hosting
+// it ourselves means the one download depends on nothing but this repo (no third-party
+// model host or CDN that could move or rate-limit).
+const RELEASE_OWNER = '2024YSJ';
+const RELEASE_REPO = 'PaperGraph3D';
+const MODEL_RELEASE_TAG = 'model-specter2-proximity-v1';
 
-// Pinned to the exact @huggingface/transformers version bundled into main.js: the
-// WASM binary and the JS glue that loads it are one unit, and a mismatch is an
-// obscure runtime failure. Bump both together or not at all.
-const TRANSFORMERS_VERSION = '3.8.1';
-
-// Only the binary. The .mjs glue that loads it is compiled into main.js (esbuild
-// resolves onnxruntime-web to dist/ort.bundle.min.mjs, whose glue is embedded), so it
-// is never fetched — see the import.meta.url define in esbuild.config.mjs, which is
-// what lets ORT use that embedded copy.
+// The onnxruntime WASM binary that matches the @huggingface/transformers version bundled
+// into main.js exactly: the binary and the JS glue that loads it are one unit, and a
+// mismatch is an obscure runtime failure. Re-upload this alongside a bumped transformers
+// version or not at all. Only the binary is hosted — the .mjs glue that loads it is
+// compiled into main.js (esbuild resolves onnxruntime-web to dist/ort.bundle.min.mjs,
+// whose glue is embedded), so it is never fetched; see the import.meta.url define in
+// esbuild.config.mjs, which is what lets ORT use that embedded copy.
 const WASM_FILE = 'ort-wasm-simd-threaded.jsep.wasm';
 
 // Relative to the plugin folder. transformers.js resolves a model as
@@ -74,12 +77,20 @@ export function assetPaths(manifestDir: string): AssetPaths {
 	};
 }
 
+function releaseAssetUrl(assetName: string): string {
+	return `https://github.com/${RELEASE_OWNER}/${RELEASE_REPO}/releases/download/${MODEL_RELEASE_TAG}/${assetName}`;
+}
+
+// A GitHub release asset name is flat — it cannot carry the `onnx/` path segment the
+// local layout uses — so the URL keys on the basename (every MODEL_FILES basename is
+// unique, so this stays unambiguous) while the on-disk dest keeps the subfolder.
 function modelFileUrl(file: string): string {
-	return `https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${file}`;
+	const basename = file.slice(file.lastIndexOf('/') + 1);
+	return releaseAssetUrl(basename);
 }
 
 function wasmFileUrl(): string {
-	return `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}/dist/${WASM_FILE}`;
+	return releaseAssetUrl(WASM_FILE);
 }
 
 /**
