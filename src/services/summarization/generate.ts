@@ -51,15 +51,18 @@ async function withTimeout<T>(
 }
 
 // A best-effort, provider-agnostic classification of a rejection into a
-// non-timeout failure reason. Providers surface an invalid-credentials rejection
-// via an Error whose message contains the substring 'invalid-credentials'
+// non-timeout failure reason. Providers surface invalid-credentials and
+// rate-limited rejections via an Error whose message contains that exact substring
 // (providers/openai.ts's convention, contracts/summarization-api.md); anything
 // else is a generic provider-error.
 function classifyRejection(
 	error: unknown,
-): 'invalid-credentials' | 'provider-error' {
+): 'invalid-credentials' | 'rate-limited' | 'provider-error' {
 	if (error instanceof Error && error.message.includes('invalid-credentials')) {
 		return 'invalid-credentials';
+	}
+	if (error instanceof Error && error.message.includes('rate-limited')) {
+		return 'rate-limited';
 	}
 	return 'provider-error';
 }
@@ -98,4 +101,40 @@ export async function runGeneration(
 			: '';
 
 	return { ok: true, summary, futureDirections: resolvedFutureDirections };
+}
+
+export async function runEmbeddingGeneration(
+	title: string,
+	abstract: string,
+	provider: LlmEmbeddingProvider,
+	credential: string,
+): Promise<EmbeddingOutcome> {
+	let raced: Awaited<ReturnType<typeof withTimeout<{ vector: number[]; model: string }>>>;
+	try {
+		raced = await withTimeout((signal) => provider.embed(title, abstract, credential, signal));
+	} catch (error) {
+		// The embedding-upgrade path has no rate-limit Notice (that is summarization's
+		// FR-008a), so a 429 folds into the generic provider-error → silent baseline
+		// fallback, identical to the behavior before rate-limited was introduced.
+		const classified = classifyRejection(error);
+		const reason: EmbeddingFailureReason =
+			classified === 'rate-limited' ? 'provider-error' : classified;
+		return { ok: false, reason };
+	}
+
+	if (!raced.ok) {
+		return { ok: false, reason: 'timeout' };
+	}
+
+	const { vector, model } = raced.value;
+
+	if (
+		!Array.isArray(vector) ||
+		vector.length === 0 ||
+		vector.some((value) => !Number.isFinite(value))
+	) {
+		return { ok: false, reason: 'invalid-vector' };
+	}
+
+	return { ok: true, vector, model };
 }

@@ -41,9 +41,10 @@ function extractCandidateText(body: unknown): unknown {
 }
 
 // The message substring 'invalid-credentials' is what generate.ts's
-// classifyRejection matches to surface the FR-008 credential Notice. Gemini uses
-// HTTP 400 with an API_KEY_INVALID reason (or 401/403) for a bad key; every other
-// non-2xx is a generic provider-error.
+// classifyRejection matches to surface the FR-008 credential Notice and the
+// rate-limit Notice. Gemini uses HTTP 400 with an API_KEY_INVALID reason (or
+// 401/403) for a bad key, and HTTP 429 with a RESOURCE_EXHAUSTED status for a
+// rate/quota limit; every other non-2xx is a generic provider-error.
 function classifyGeminiError(status: number, body: unknown): Error {
 	const bodyText = JSON.stringify(body ?? {});
 	const looksLikeKeyProblem =
@@ -52,6 +53,11 @@ function classifyGeminiError(status: number, body: unknown): Error {
 		/API_KEY_INVALID|API key not valid|API key expired/i.test(bodyText);
 	if (looksLikeKeyProblem) {
 		return new Error(`invalid-credentials (status ${status})`);
+	}
+	const looksRateLimited =
+		status === 429 || /RESOURCE_EXHAUSTED|rate limit|quota/i.test(bodyText);
+	if (looksRateLimited) {
+		return new Error(`rate-limited (status ${status})`);
 	}
 	return new Error(`provider-error (status ${status})`);
 }

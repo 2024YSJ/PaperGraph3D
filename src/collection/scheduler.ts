@@ -1,5 +1,6 @@
 import type { Plugin } from 'obsidian';
 import type { Subscription } from '../models/subscription';
+import { subscriptionKey } from '../models/subscription';
 import { runBackfillPass } from './backfill';
 
 // One 15-minute registerInterval-backed tick (research.md Decision 4) that checks each due
@@ -41,9 +42,9 @@ export interface SchedulerHandle {
 	backfillNow(subscription: Subscription): Promise<void>;
 }
 
-function keyOf(subscription: { type: string; value: string }): string {
-	return `${subscription.type}:${subscription.value}`;
-}
+// FR-047: identity is the subscription's full (order-independent) ANDed condition set,
+// not just its primary type/value.
+const keyOf = subscriptionKey;
 
 // FRONTIER window (drives lastCheckedAt). Two cases (FR-024, FR-030).
 export function computeCollectionWindow(
