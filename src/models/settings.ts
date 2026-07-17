@@ -41,6 +41,20 @@ export interface PluginSettings {
 	// it off only suppresses the Notice; the backfill itself is never gated or
 	// altered by this setting.
 	backfillLargeWindowNoticeEnabled?: boolean;
+	// 004-owned (FR-006). Which SummarizationProvider.id to use for text
+	// generation. Absent/undefined -> no summarization call is possible even if
+	// summarizationEnabled is true (treated as "not configured", FR-008-style
+	// credential-problem messaging).
+	summarizationProvider?: string;
+	// 004-owned (FR-006). Plaintext credential for the summarization provider
+	// (constitution Principle IV — disclosed in settings UI copy).
+	summarizationCredential?: string;
+	// 004-owned (FR-010, spec Key Entities: "this feature owns only the LLM
+	// option's key"). Plaintext credential for the LLM embedding upgrade, read by
+	// main.ts's existing getEmbeddingConfig() getter and threaded into
+	// EmbeddingConfig.credential. Independent of summarizationCredential (FR-011:
+	// sharing is allowed, not required — a user may enter the same value in both).
+	embeddingCredential?: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
@@ -90,6 +104,13 @@ export function isValidPluginSettings(data: unknown): data is PluginSettings {
 		(candidate.localEmbeddingModel === undefined ||
 			typeof candidate.localEmbeddingModel === 'string') &&
 		(candidate.backfillLargeWindowNoticeEnabled === undefined ||
-			typeof candidate.backfillLargeWindowNoticeEnabled === 'boolean')
+			typeof candidate.backfillLargeWindowNoticeEnabled === 'boolean') &&
+		// Optional 004 extensions: absent, or a string when present (FR-006/FR-010).
+		(candidate.summarizationProvider === undefined ||
+			typeof candidate.summarizationProvider === 'string') &&
+		(candidate.summarizationCredential === undefined ||
+			typeof candidate.summarizationCredential === 'string') &&
+		(candidate.embeddingCredential === undefined ||
+			typeof candidate.embeddingCredential === 'string')
 	);
 }

@@ -12,6 +12,8 @@ import type { PipelineHooks } from './collection/pipeline';
 import { reembedCorpus } from './collection/reembed';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
+import { createSummarizeHook } from './services/summarization/hook';
+import { resolveSummarizationProvider } from './services/summarization/providers/registry';
 
 // Bilingual-ready user-facing copy (constitution Principle V). Korean first, English second.
 function subscriptionFailureNotice(
@@ -45,6 +47,17 @@ function largeBackfillWindowNotice(subscription: Subscription): string {
 	return (
 		`PaperGraph3D: "${label}" 백필 범위가 넓어 많은 논문을 가져올 수 있습니다.\n` +
 		`The backfill window for "${label}" spans a long period and may collect a large number of papers.`
+	);
+}
+
+// 004 FR-006/FR-008: summarization is enabled but its provider and/or credential is
+// absent, so every paper silently falls back to the abstract. A one-time load-time
+// nudge (not a per-paper Notice) points the user at settings. The richer inline
+// settings-tab warning belongs to 008.
+function summarizationUnconfiguredNotice(): string {
+	return (
+		'PaperGraph3D: 요약이 켜져 있지만 제공자 또는 자격 증명이 설정되지 않아 원문 초록으로 대체됩니다. 설정에서 확인하세요.\n' +
+		'Summarization is on but no provider/credential is configured — notes fall back to the original abstract. Check settings.'
 	);
 }
 
@@ -97,8 +110,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 		// scoped to the user's storage folder (FR-006). Load the on-disk index up front so
 		// dedup (alreadyPersisted) is correct across restarts — a paper saved in a previous
 		// session must not be re-persisted on the next collection pass. Store notices reach
-		// the user via Obsidian's Notice. The summarize hook stays omitted (undefined) until
-		// 004 (summarization) ships.
+		// the user via Obsidian's Notice.
 		const paperStore = new PaperStore(
 			createObsidianFileStore(this.app, this.settings.storageLocation),
 			{ notify: (message) => new Notice(message) },
@@ -112,9 +124,37 @@ export default class PaperGraph3DPlugin extends Plugin {
 		void reembedCorpus(paperStore, {
 			provider: this.settings.embeddingProvider ?? 'bundled',
 			localModel: this.settings.localEmbeddingModel,
+			credential: this.settings.embeddingCredential,
 		}).catch(() => undefined);
 
+		// 004: warn once at load if summarization is enabled but unconfigured, so the
+		// user isn't left wondering why notes still show the raw abstract (FR-006).
+		const summarizationProvider = this.settings.summarizationProvider;
+		const summarizationCredential = this.settings.summarizationCredential;
+		if (
+			this.settings.summarizationEnabled &&
+			(summarizationProvider === undefined ||
+				summarizationProvider.length === 0 ||
+				summarizationCredential === undefined ||
+				summarizationCredential.trim().length === 0)
+		) {
+			new Notice(summarizationUnconfiguredNotice());
+		}
+
 		const pipelineHooks: PipelineHooks = {
+			// 004-owned (FR-006). The stored summarizationProvider id is resolved
+			// through the provider registry ('openai' | 'anthropic' | 'gemini'); an
+			// unrecognized/absent selection resolves to undefined, which
+			// createSummarizeHook() treats as "not configured" (no summarization call
+			// is ever attempted). The single summarizationCredential applies to
+			// whichever provider is currently selected.
+			summarize: createSummarizeHook({
+				getProvider: () =>
+					resolveSummarizationProvider(this.settings.summarizationProvider),
+				getCredential: () => this.settings.summarizationCredential,
+				notifyCredentialProblem: (message) => new Notice(message),
+				notifyRateLimited: (message) => new Notice(message),
+			}),
 			persist: (paper, summary) =>
 				paperStore.upsert({
 					paper,
@@ -148,6 +188,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 					() => ({
 						provider: this.settings.embeddingProvider ?? 'bundled',
 						localModel: this.settings.localEmbeddingModel,
+						credential: this.settings.embeddingCredential,
 					}),
 				),
 			onFailure: (subscription, reason) => {
