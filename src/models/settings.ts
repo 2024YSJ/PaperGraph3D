@@ -34,6 +34,13 @@ export interface PluginSettings {
 	// File path or URL of the user-supplied on-device transformer model, read only
 	// when embeddingProvider === 'local-transformer' (002 FR-046). Absent otherwise.
 	localEmbeddingModel?: string;
+	// Whether a large-backfill-window informational Notice (002 FR-048) is shown when
+	// a user requests a backfill spanning more than the large-window threshold. An
+	// optional, FR-016-style additive extension: absent means on (the default), so
+	// existing persisted settings without this field keep seeing the Notice. Turning
+	// it off only suppresses the Notice; the backfill itself is never gated or
+	// altered by this setting.
+	backfillLargeWindowNoticeEnabled?: boolean;
 	// 004-owned (FR-006). Which SummarizationProvider.id to use for text
 	// generation. Absent/undefined -> no summarization call is possible even if
 	// summarizationEnabled is true (treated as "not configured", FR-008-style
@@ -96,6 +103,8 @@ export function isValidPluginSettings(data: unknown): data is PluginSettings {
 				))) &&
 		(candidate.localEmbeddingModel === undefined ||
 			typeof candidate.localEmbeddingModel === 'string') &&
+		(candidate.backfillLargeWindowNoticeEnabled === undefined ||
+			typeof candidate.backfillLargeWindowNoticeEnabled === 'boolean') &&
 		// Optional 004 extensions: absent, or a string when present (FR-006/FR-010).
 		(candidate.summarizationProvider === undefined ||
 			typeof candidate.summarizationProvider === 'string') &&
