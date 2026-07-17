@@ -1,8 +1,15 @@
 # Spec-test report: 001-core-data-models
 
+> **[Re-run 2026-07-17 — 21 passed, 0 failed, 6 skipped]**
+>
+> `SC-007`'s "llm source valid" assertion is inverted: `embeddingSource: 'llm'` is now
+> rejected. That is also why `persistence/record.ts`'s `migrate()` must reset legacy
+> `llm` vectors to pending *before* validation — reaching `isValidPaper()` with one
+> would read as a corrupt record and lose the paper.
+
 - **Spec**: `specs/001-core-data-models/spec.md`
-- **Source branch**: `develop`
-- **Date**: 2026-07-09
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-17
 - **`tsc --noEmit`**: PASS
 - **Result**: **21 passed, 0 failed, 6 skipped**
 

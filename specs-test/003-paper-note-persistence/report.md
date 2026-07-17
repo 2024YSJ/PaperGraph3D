@@ -1,10 +1,15 @@
 # Spec-test report: 003-paper-note-persistence
 
+> **[Re-run 2026-07-17 — 25 passed, 0 failed, 2 skipped]** Unchanged by the embedding redesign; re-run to
+> confirm no regression. Suites are built with `--external:@huggingface/transformers`:
+> the embedding runtime is now a real dependency of `src/`, and the lazy import is
+> never reached by these tests.
+
 - **Spec**: `specs/003-paper-note-persistence/spec.md`
-- **Source branch**: `develop`
-- **Date**: 2026-07-10
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-17
 - **`tsc --noEmit`**: PASS
-- **Result**: **18 passed, 0 failed, 3 skipped**
+- **Result**: **25 passed, 0 failed, 2 skipped**
 
 Exercises the real `src/persistence/*` exports (`PaperStore`, `renderNote`/`parseNote`,
 `wrap`/`migrate`, `fileStem`/`sanitizeStem`, reconcile helpers) end-to-end over

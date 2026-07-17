@@ -1,5 +1,22 @@
 # Implementation Plan: Paper Summarization & Future-Directions Text
 
+> **[Amended 2026-07-16 — the LLM embedding half of this feature is withdrawn]**
+>
+> Everything below about **embeddings** — `LlmEmbeddingProvider`, `embeddingHook.ts`,
+> `runEmbeddingGeneration`, `openAiEmbeddingProvider`, `llmEmbeddingModelId`, the
+> `llm:<model>:d<dim>` naming contract, `EmbeddingConfig.credential`, the
+> `embeddingCredential` setting, and the independent embedding toggle — **no longer
+> applies**. That code is deleted and FR-010/FR-011/FR-012 are withdrawn.
+>
+> Why: embedding dimensionality varied by provider and model, but only vectors sharing
+> one space can be projected together (001 FR-020) — a selectable provider was a
+> selectable dimensionality. The canonical space is now one fixed on-device model
+> (SPECTER2), owned by 002. See constitution v1.3.0 and 002 FR-045/FR-046.
+>
+> **Summarization is unaffected** and everything below about generating summary text
+> — the provider abstraction, the three providers, the timeout/fallback rules, the
+> disclosure copy — is still current.
+
 **Branch**: `004-paper-summarization` | **Date**: 2026-07-10 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/004-paper-summarization/spec.md`

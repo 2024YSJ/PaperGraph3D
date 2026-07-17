@@ -30,14 +30,51 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
-		// Optional local-transformer embedding runtime (002 FR-046), loaded via a
-		// lazy dynamic import only when the user selects that provider. Kept external
-		// so the heavy onnxruntime/WASM dependency never bloats or breaks the core
-		// bundle; making it load in a shipped desktop plugin is a follow-up that
-		// needs verification in the real Obsidian environment.
-		'@huggingface/transformers',
 		...builtinModules,
 	],
+	// Obsidian installs only main.js/manifest.json/styles.css, so the embedding
+	// runtime (@huggingface/transformers) has to be INSIDE main.js — it can't ship
+	// as a sibling file. Bundling it is only possible on the browser platform: the
+	// package's exports map routes `node` to onnxruntime-node, whose prebuilt
+	// *.node binaries esbuild cannot load ("No loader is configured for '.node'").
+	// The browser condition resolves to dist/transformers.web.js -> onnxruntime-web,
+	// which is pure JS + a WASM asset, and adds ~800 KB to the bundle (T039).
+	//
+	// Choosing the web build at build time is only half of it: both libraries sniff the
+	// environment at RUNTIME and Obsidian looks like Node to them, so see the defines
+	// below. The WASM binary itself (~20 MB) cannot be bundled either; it is downloaded
+	// into the plugin folder and handed to onnxruntime as bytes (modelAssets.ts).
+	platform: 'browser',
+	// onnxruntime derives `scriptSrc` from import.meta.url, which a CJS bundle does not
+	// have — it would be undefined, and ORT reads that as "I cannot tell where I came
+	// from", refuses to use the WASM glue compiled into this very bundle, and instead
+	// dynamic-imports it from a URL (which Obsidian's CSP has no reason to allow).
+	// Reporting the app's own document URL is both true and same-origin by
+	// construction, which is exactly the test ORT applies before trusting the embedded
+	// module. Without this the on-device embedding path cannot start.
+	define: {
+		// transformers.js decides which ONNX runtime to use with
+		//   IS_NODE_ENV = process?.release?.name === 'node'   -> use onnxruntime-node
+		// Obsidian is an Electron renderer, so that is true, and transformers.js reaches
+		// for onnxruntime-node — which this bundle does not contain and cannot contain
+		// (its prebuilt .node binaries are unbundleable, which is why we are on the web
+		// build at all). The result is env.backends.onnx === undefined and a runtime that
+		// never starts. The predicate is really asking "is onnxruntime-node available?",
+		// and for this bundle the answer is no, so answer it correctly. transformers.js
+		// then takes its web branch, which is also the branch that populates the device
+		// list and fetches model files instead of reading them off a filesystem we do not
+		// hand it paths into.
+		'process.release.name': JSON.stringify('electron-renderer'),
+
+		// onnxruntime derives `scriptSrc` from import.meta.url, which a CJS bundle does
+		// not have — it would be undefined, and ORT reads that as "I cannot tell where I
+		// came from", refuses to use the WASM glue compiled into this very bundle, and
+		// dynamic-imports it from a URL instead (which Obsidian's CSP has no reason to
+		// allow). Reporting the app's own document URL is both true and same-origin by
+		// construction, which is exactly the test ORT applies before trusting the
+		// embedded module.
+		'import.meta.url': 'globalThis.location.href',
+	},
 	format: 'cjs',
 	target: 'es2021',
 	logLevel: 'info',
