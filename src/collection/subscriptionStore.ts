@@ -1,18 +1,27 @@
 import type {
 	Subscription,
 	SubscriptionType,
+	SubscriptionCondition,
 	CheckIntervalHours,
 } from '../models/subscription';
 import {
 	DEFAULT_CHECK_INTERVAL_HOURS,
+	MAX_SUBSCRIPTION_CONDITIONS,
 	assignCheckInterval,
 	isValidSubscription,
+	subscriptionKey,
 } from '../models/subscription';
 
 // Persistence + CRUD over 001's Subscription type (User Story 1), plus the backfill
 // watermark operations (User Story 5). Builds no UI — 008's settings screen calls these
 // directly. See contracts/collection-pipeline.md § subscriptionStore.ts for the
 // authoritative behavior guarantees.
+
+// FR-048: a backfill request whose window [targetFrom, coveredFrom) spans more than
+// this much calendar time surfaces the large-window informational Notice. A
+// deliberately coarse, tunable approximation from the date range alone (no extra
+// provider call to count matching papers) — 6 months.
+export const LARGE_BACKFILL_WINDOW_MS = 180 * 24 * 60 * 60 * 1000;
 
 export interface SubscriptionStoreDeps {
 	// Returns whatever loadData() last read back — NOT pre-validated as Subscription[].
@@ -28,6 +37,18 @@ export interface SubscriptionStoreDeps {
 	// Fired only after a validated, non-no-op backfill request set/lowered backfillState.
 	// Wired to the scheduler's backfillNow (FR-033).
 	onBackfillRequested?: (subscription: Subscription) => void;
+	// FR-048: fired at most once per successful, non-no-op backfill request whose
+	// requested window [targetFrom, coveredFrom) exceeds LARGE_BACKFILL_WINDOW_MS —
+	// lets the caller surface an informational Notice. Never fires when
+	// isLargeBackfillNoticeEnabled (below) returns false, and never blocks or alters
+	// the backfill itself either way.
+	onLargeBackfillWindow?: (
+		subscription: Subscription,
+		window: { targetFrom: number; coveredFrom: number },
+	) => void;
+	// Read live (mirrors FR-021's live-setting pattern) each time a backfill is
+	// requested. Absent/undefined defaults to enabled (the Notice is on by default).
+	isLargeBackfillNoticeEnabled?: () => boolean;
 	// Fired at most once, the first time load()'s result is consumed, if any element failed
 	// isValidSubscription and was dropped.
 	onInvalidData?: (droppedCount: number) => void;
@@ -40,6 +61,9 @@ export interface SubscriptionStore {
 		value: string;
 		label?: string;
 		checkIntervalHours?: CheckIntervalHours;
+		// FR-047: 0 to (MAX_SUBSCRIPTION_CONDITIONS - 1) extra conditions ANDed with the
+		// primary type/value above.
+		additionalConditions?: SubscriptionCondition[];
 	}): Promise<Subscription>;
 	remove(subscription: Subscription): Promise<void>;
 	setEnabled(subscription: Subscription, enabled: boolean): Promise<void>;
@@ -57,9 +81,8 @@ export interface SubscriptionStore {
 	ready(): Promise<void>;
 }
 
-function keyOf(subscription: { type: SubscriptionType; value: string }): string {
-	return `${subscription.type}:${subscription.value}`;
-}
+// FR-047: identity is the subscription's full (order-independent) ANDed condition set.
+const keyOf = subscriptionKey;
 
 export function createSubscriptionStore(deps: SubscriptionStoreDeps): SubscriptionStore {
 	let subscriptions: Subscription[] = [];
@@ -101,7 +124,9 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): Subscripti
 	// resolves; every async mutator also awaits ensureLoaded() before touching state.
 	void ensureLoaded();
 
-	function find(subscription: { type: SubscriptionType; value: string }): Subscription | undefined {
+	function find(
+		subscription: { type: SubscriptionType; value: string; additionalConditions?: SubscriptionCondition[] },
+	): Subscription | undefined {
 		const key = keyOf(subscription);
 		return subscriptions.find((candidate) => keyOf(candidate) === key);
 	}
@@ -119,15 +144,25 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): Subscripti
 		value: string;
 		label?: string;
 		checkIntervalHours?: CheckIntervalHours;
+		additionalConditions?: SubscriptionCondition[];
 	}): Promise<Subscription> {
 		await ensureLoaded();
 
-		// FR-025: reject an empty/whitespace-only value before anything else.
+		// FR-025/FR-047: reject an empty/whitespace-only value on ANY condition — the
+		// primary type/value or any additionalConditions entry — before anything else.
 		if (input.value.trim().length === 0) {
 			throw new Error('Subscription value must not be empty');
 		}
+		const additionalConditions = input.additionalConditions ?? [];
+		if (additionalConditions.length > MAX_SUBSCRIPTION_CONDITIONS - 1) {
+			throw new Error(`A subscription may combine at most ${MAX_SUBSCRIPTION_CONDITIONS} conditions`);
+		}
+		if (additionalConditions.some((condition) => condition.value.trim().length === 0)) {
+			throw new Error('Subscription value must not be empty');
+		}
 
-		// FR-001: idempotent on (type, value) — return the existing one unchanged.
+		// FR-001/FR-047: idempotent on the full (order-independent) condition set — return
+		// the existing one unchanged.
 		const existing = find(input);
 		if (existing !== undefined) {
 			return { ...existing };
@@ -140,6 +175,7 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): Subscripti
 			checkIntervalHours: input.checkIntervalHours ?? DEFAULT_CHECK_INTERVAL_HOURS,
 			lastCheckedAt: null,
 			enabled: true,
+			...(additionalConditions.length > 0 ? { additionalConditions } : {}),
 		};
 		subscriptions.push(subscription);
 		await persist();
@@ -242,6 +278,15 @@ export function createSubscriptionStore(deps: SubscriptionStoreDeps): Subscripti
 		}
 		await persist();
 		deps.onBackfillRequested?.({ ...stored });
+
+		// FR-048: once per request, not per pass — surfaced here (registration/request
+		// time), not inside the resumable pass loop (backfill.ts).
+		if (
+			coveredFrom - targetFrom > LARGE_BACKFILL_WINDOW_MS &&
+			(deps.isLargeBackfillNoticeEnabled?.() ?? true)
+		) {
+			deps.onLargeBackfillWindow?.({ ...stored }, { targetFrom, coveredFrom });
+		}
 	}
 
 	async function recordBackfillProgress(subscription: Subscription, cursor: number): Promise<void> {

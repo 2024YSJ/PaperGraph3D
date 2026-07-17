@@ -1,4 +1,6 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
+import type { Subscription } from '../models/subscription';
+import { subscriptionConditions } from '../models/subscription';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
 import type { EmbeddingConfig } from './embeddingUpgrade';
 import { computeBaselineEmbedding } from './embedding';
@@ -144,7 +146,7 @@ export async function runCollectionPass(
 // queryArxiv's {truncated, coveredThrough} so the scheduler can record lastCheckedAt at the
 // covered boundary and surface truncation. This is startScheduler's runCheck dependency.
 export async function runSubscriptionCheck(
-	subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
+	subscription: Pick<Subscription, 'type' | 'value' | 'additionalConditions'>,
 	window: { from: number; to: number },
 	hooks: PipelineHooks,
 	isSummarizationEnabled: () => boolean,
@@ -152,7 +154,11 @@ export async function runSubscriptionCheck(
 	enrich?: EnrichFn,
 	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<{ truncated: boolean; coveredThrough: number }> {
-	const { entries, truncated, coveredThrough } = await queryArxiv(subscription, window);
+	// FR-047: AND every condition (1 to 3) together in a single arXiv query.
+	const { entries, truncated, coveredThrough } = await queryArxiv(
+		subscriptionConditions(subscription),
+		window,
+	);
 
 	async function* toCandidates(): AsyncIterable<PaperCandidate> {
 		for (const entry of entries) {

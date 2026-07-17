@@ -38,6 +38,16 @@ function invalidDataNotice(droppedCount: number): string {
 	);
 }
 
+// 002 FR-048: informational only — never blocks the backfill, which proceeds
+// identically whether or not this Notice is shown.
+function largeBackfillWindowNotice(subscription: Subscription): string {
+	const label = subscription.label;
+	return (
+		`PaperGraph3D: "${label}" 백필 범위가 넓어 많은 논문을 가져올 수 있습니다.\n` +
+		`The backfill window for "${label}" spans a long period and may collect a large number of papers.`
+	);
+}
+
 export default class PaperGraph3DPlugin extends Plugin {
 	settings!: PluginSettings;
 	private scheduler?: SchedulerHandle;
@@ -68,6 +78,12 @@ export default class PaperGraph3DPlugin extends Plugin {
 			},
 			onBackfillRequested: (subscription) => {
 				void scheduler?.backfillNow(subscription);
+			},
+			// FR-048: live-read the setting each time (mirrors FR-021's pattern) so a
+			// mid-session toggle takes effect immediately, not just on next load.
+			isLargeBackfillNoticeEnabled: () => this.settings.backfillLargeWindowNoticeEnabled ?? true,
+			onLargeBackfillWindow: (subscription) => {
+				new Notice(largeBackfillWindowNotice(subscription));
 			},
 			onInvalidData: (droppedCount) => {
 				new Notice(invalidDataNotice(droppedCount));

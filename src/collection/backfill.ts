@@ -1,4 +1,5 @@
 import type { Subscription } from '../models/subscription';
+import { subscriptionKey } from '../models/subscription';
 import { computeBackfillWindow } from './scheduler';
 
 // Backfill runner (US5, FR-033–040): one pass over computeBackfillWindow(subscription)
@@ -36,7 +37,7 @@ export async function runBackfillPass(
 	if (window === undefined || window.from >= window.to) {
 		return false;
 	}
-	const key = `${subscription.type}:${subscription.value}`;
+	const key = subscriptionKey(subscription);
 
 	let result: { truncated: boolean; coveredThrough: number };
 	try {

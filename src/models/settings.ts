@@ -34,6 +34,13 @@ export interface PluginSettings {
 	// File path or URL of the user-supplied on-device transformer model, read only
 	// when embeddingProvider === 'local-transformer' (002 FR-046). Absent otherwise.
 	localEmbeddingModel?: string;
+	// Whether a large-backfill-window informational Notice (002 FR-048) is shown when
+	// a user requests a backfill spanning more than the large-window threshold. An
+	// optional, FR-016-style additive extension: absent means on (the default), so
+	// existing persisted settings without this field keep seeing the Notice. Turning
+	// it off only suppresses the Notice; the backfill itself is never gated or
+	// altered by this setting.
+	backfillLargeWindowNoticeEnabled?: boolean;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
@@ -81,6 +88,8 @@ export function isValidPluginSettings(data: unknown): data is PluginSettings {
 					candidate.embeddingProvider,
 				))) &&
 		(candidate.localEmbeddingModel === undefined ||
-			typeof candidate.localEmbeddingModel === 'string')
+			typeof candidate.localEmbeddingModel === 'string') &&
+		(candidate.backfillLargeWindowNoticeEnabled === undefined ||
+			typeof candidate.backfillLargeWindowNoticeEnabled === 'boolean')
 	);
 }
