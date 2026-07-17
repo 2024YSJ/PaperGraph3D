@@ -1,6 +1,6 @@
 # Spec-test report: 004-paper-summarization
 
-> **[Re-run 2026-07-16 — 25 passed, 0 failed, 3 skipped]**
+> **[Re-run 2026-07-17 — 25 passed, 0 failed, 3 skipped]**
 >
 > The LLM embedding assertions (`FR-011`, `EMB.1`–`EMB.5`, and the `isCanonical-direct`
 > / `smoke-openai` skips) are removed: that provider is retired and the code under test
@@ -10,7 +10,7 @@
 
 - **Spec**: `specs/004-paper-summarization/spec.md`
 - **Source branch**: `develop-feature/embedding-redesign`
-- **Date**: 2026-07-16
+- **Date**: 2026-07-17
 - **`tsc --noEmit`**: PASS
 - **Result**: **25 passed, 0 failed, 3 skipped**
 
