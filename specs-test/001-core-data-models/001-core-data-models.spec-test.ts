@@ -56,6 +56,7 @@ const validPaper = (): Paper => ({
 	abstract: 'A transformer architecture.',
 	sourceId: 'arxiv:1706.03762',
 	references: [],
+	collectedVia: [],
 	embedding: null,
 	embeddingModel: null,
 	embeddingSource: null,
@@ -125,7 +126,7 @@ check('US2.2', 'A paper with unknown/empty publication year is held back (not va
 	assert(!isValidPaper({ ...validPaper(), publicationYear: 'abcd' as unknown as number }), 'non-numeric year invalid');
 });
 check('US2.3', 'A paper missing (or wrong-typed on) a required attribute is invalid', () => {
-	const fields = ['title', 'publicationYear', 'authors', 'citationCount', 'abstract', 'sourceId', 'citationsKnown', 'references'] as const;
+	const fields = ['title', 'publicationYear', 'authors', 'citationCount', 'abstract', 'sourceId', 'citationsKnown', 'references', 'collectedVia'] as const;
 	for (const f of fields) {
 		const missing = { ...validPaper() } as Record<string, unknown>;
 		delete missing[f];
@@ -139,6 +140,9 @@ check('US2.3', 'A paper missing (or wrong-typed on) a required attribute is inva
 	assert(!isValidPaper({ ...validPaper(), references: 'x' as unknown as Paper['references'] }), 'non-array references invalid');
 	assert(!isValidPaper({ ...validPaper(), references: ['not-a-source-id'] as unknown as Paper['references'] }), 'references with invalid sourceId invalid');
 	assert(!isValidPaper({ ...validPaper(), sourceId: 'nope' as unknown as Paper['sourceId'] }), 'bare sourceId invalid');
+	assert(!isValidPaper({ ...validPaper(), collectedVia: 'x' as unknown as string[] }), 'non-array collectedVia invalid');
+	assert(!isValidPaper({ ...validPaper(), collectedVia: [1] as unknown as string[] }), 'collectedVia with non-string element invalid');
+	assert(isValidPaper({ ...validPaper(), collectedVia: ['keyword:ml', 'author:hinton'] }), 'collectedVia of subscriptionKeys accepted');
 	// FR-023: optional publicationDate (ISO YYYY-MM-DD) — absent/valid ok, malformed/non-string invalid.
 	assert(isValidPaper({ ...validPaper(), publicationDate: '2019-05-01' }), 'valid ISO publicationDate accepted');
 	assert(isValidPaper({ ...validPaper(), publicationDate: undefined }), 'undefined publicationDate accepted (optional)');
@@ -186,6 +190,7 @@ check('EC-3', 'A valid year with unconfirmed citations is still promoted (0 / []
 	assert(promoted !== undefined, 'promoted despite unknown citations');
 	assert(promoted!.citationCount === 0, 'citationCount defaults to 0');
 	assert(Array.isArray(promoted!.references) && promoted!.references.length === 0, 'references default to []');
+	assert(Array.isArray(promoted!.collectedVia) && promoted!.collectedVia.length === 0, 'collectedVia defaults to [] (pipeline stamps it later)');
 	assert(promoted!.citationsKnown === false, 'citationsKnown is false for unconfirmed');
 });
 check('EC-4', 'A check interval outside the list is rejected, previous value kept', () => {

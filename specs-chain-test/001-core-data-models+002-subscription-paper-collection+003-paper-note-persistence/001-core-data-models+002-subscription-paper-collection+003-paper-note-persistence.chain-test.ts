@@ -79,7 +79,7 @@ async function main() {
 		const { hooks, captured } = capturingHooks();
 		const enrich = async (): Promise<Map<PaperSourceId, EnrichmentOutcome>> =>
 			new Map<PaperSourceId, EnrichmentOutcome>([['arxiv:1' as PaperSourceId, { status: 'enriched', citationCount: ss.citationCount, references: refs }]]);
-		await runCollectionPass(gen([candidate('arxiv:1')]), hooks, () => false, () => undefined, enrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:test', hooks, () => false, () => undefined, enrich);
 		assert(captured.length === 1 && isValidPaper(captured[0]!), 'enriched Paper passes 001 isValidPaper');
 		assert(captured[0]!.references.every(isPaperSourceId), 'stored references remain valid 001 sourceIds');
 	});
@@ -98,7 +98,7 @@ async function main() {
 	// =================================================================
 	await check('C4', "[002→003] the Paper 002 produces round-trips through 003's record; note frontmatter mirrors the shared subset", async () => {
 		const { hooks, captured } = capturingHooks();
-		await runCollectionPass(gen([candidate('arxiv:1706.03762', { citationCount: 12, references: undefined })]), hooks, () => false, () => undefined,
+		await runCollectionPass(gen([candidate('arxiv:1706.03762', { citationCount: 12, references: undefined })]), 'keyword:test', hooks, () => false, () => undefined,
 			async () => new Map<PaperSourceId, EnrichmentOutcome>([['arxiv:1706.03762' as PaperSourceId, { status: 'enriched', citationCount: 12, references: ['arxiv:1' as PaperSourceId] }]]));
 		const produced = captured[0]!;
 		const fs = new InMemoryFileStore();
@@ -118,7 +118,7 @@ async function main() {
 	});
 	await check('C5', "[002→003] non-mirrored fields (references/embedding/timestamps/schemaVersion) never leak into the note", async () => {
 		const { hooks, captured } = capturingHooks();
-		await runCollectionPass(gen([candidate('arxiv:9', { citationCount: 1 })]), hooks, () => false, () => undefined,
+		await runCollectionPass(gen([candidate('arxiv:9', { citationCount: 1 })]), 'keyword:test', hooks, () => false, () => undefined,
 			async () => new Map<PaperSourceId, EnrichmentOutcome>([['arxiv:9' as PaperSourceId, { status: 'enriched', citationCount: 1, references: ['arxiv:12345' as PaperSourceId] }]]));
 		const produced = captured[0]!;
 		assert(Array.isArray(produced.embedding) && produced.embeddingModel === BASELINE_EMBEDDING_MODEL, 'produced Paper carries the 002 baseline embedding');
@@ -159,7 +159,7 @@ async function main() {
 			candidate('arxiv:2', { citationCount: 0 }),
 			candidate('arxiv:3', { publicationYear: undefined }),        // 001 hold-back
 		];
-		await runCollectionPass(gen(batch), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen(batch), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		// exactly the two distinct, year-bearing papers are stored
 		const jsons = (await fs.list()).filter((f) => classify(f) === 'json');
 		assert(jsons.length === 2, 'exactly 2 distinct valid papers persisted (dup collapsed, yearless dropped)');
@@ -181,14 +181,14 @@ async function main() {
 			persist: async (paper) => { await store.upsert({ paper }); },
 			alreadyPersisted: async (id) => store.has(id),
 		};
-		await runCollectionPass(gen([candidate('arxiv:1')]), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		// user writes into the note body
 		const mdPath = (await fs.list()).find((f) => classify(f) === 'md')!;
 		const userLine = '\n## My reading notes\n\nRevisit the ablation table.\n';
 		await fs.write(mdPath, (await fs.read(mdPath))! + userLine);
 		const before = await fs.read(mdPath);
 		// re-collect the same paper: 002's dedup (via 003's index) must make it a no-op
-		await runCollectionPass(gen([candidate('arxiv:1', { citationCount: 999 })]), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1', { citationCount: 999 })]), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		assert((await fs.list()).filter((f) => classify(f) === 'json').length === 1, 're-collection created no duplicate pairing');
 		assert((await fs.read(mdPath)) === before, 'note (incl. user body) byte-for-byte unchanged — re-collection wrote nothing');
 	});

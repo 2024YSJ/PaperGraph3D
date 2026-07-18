@@ -93,6 +93,14 @@ export interface Paper {
 	// See PaperCandidate.references above — same field, carried onto the validated
 	// Paper shape so every downstream feature reads citation edges from one place.
 	references: PaperSourceId[];
+	// The subscription(s) that collected this paper: a de-duplicated set of
+	// subscriptionKey() strings (models/subscription.ts) — the stable,
+	// order-independent condition-set identity, not the mutable label. A single paper
+	// may match several subscriptions, so this is a set: the collection pipeline stamps
+	// the first collecting subscription's key here and unions any later ones (see
+	// pipeline.ts recordCollectedVia / persistence mergePaper). Empty on a paper that
+	// predates this field (migrate() defaults it to []) — never a hold-back trigger.
+	collectedVia: string[];
 	// See PaperCandidate above. On a valid Paper these keys are always present;
 	// `null` means "pending" (not yet embedded) — still valid, never a hold-back
 	// trigger (001 FR-019/FR-021). Only papers sharing one embeddingModel space may
@@ -162,6 +170,9 @@ export function toPaper(candidate: PaperCandidate): Paper | undefined {
 		citationCount: candidate.citationCount ?? 0,
 		citationsKnown: candidate.citationCount !== undefined,
 		references: candidate.references ?? [],
+		// Subscription provenance is stamped by the collection pipeline, which knows
+		// the subscription; promotion is subscription-agnostic, so it starts empty.
+		collectedVia: [],
 		// An unknown embedding is defaulted to null (pending), not held back
 		// (FR-021) — the baseline vector is filled by 260702-002/004.
 		embedding: candidate.embedding ?? null,
@@ -199,6 +210,11 @@ export function isValidPaper(data: unknown): data is Paper {
 		candidate.references.every(
 			(ref) => typeof ref === 'string' && isPaperSourceId(ref),
 		) &&
+		// Subscription provenance (this feature): a set of subscriptionKey strings.
+		// An empty array is valid (a migrated pre-existing record, or a paper not
+		// produced by subscription collection).
+		Array.isArray(candidate.collectedVia) &&
+		candidate.collectedVia.every((s) => typeof s === 'string') &&
 		// Content embedding (FR-019/FR-020): the keys must be present, but a pending
 		// (null) embedding is valid — it is never a hold-back trigger (FR-021).
 		(candidate.embedding === null ||

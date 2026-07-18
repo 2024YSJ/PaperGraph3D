@@ -292,7 +292,7 @@ async function main(): Promise<void> {
 		async function* candidates(): AsyncIterable<PaperCandidate> { yield candidate(); }
 		// Drive the REAL 002 pipeline: dedup → batched enrich (shim) → promote (001) →
 		// attach baseline embedding (002 FR-044) → persist hook (003). Summarization off.
-		await runCollectionPass(candidates(), hooks, () => false, () => undefined, undefined, () => ({ provider: 'bundled' }));
+		await runCollectionPass(candidates(), 'keyword:test', hooks, () => false, () => undefined, undefined, () => ({ provider: 'bundled' }));
 
 		// After the 001→002→003 head: the paper exists, is 001-valid, enriched, embedded.
 		const collected = await store.get(SID);

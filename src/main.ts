@@ -165,6 +165,18 @@ export default class PaperGraph3DPlugin extends Plugin {
 					futureDirections: summary?.futureDirections,
 				}),
 			alreadyPersisted: async (sourceId) => paperStore.has(sourceId),
+			// When a paper another subscription already persisted is collected again, add
+			// this subscription's key to its collectedVia set without re-processing it.
+			// mergePaper's union makes the re-persist idempotent even under a race.
+			recordCollectedVia: async (sourceId, key) => {
+				const stored = await paperStore.get(sourceId);
+				if (stored === undefined || stored.collectedVia.includes(key)) {
+					return;
+				}
+				await paperStore.upsert({
+					paper: { ...stored, collectedVia: [...stored.collectedVia, key] },
+				});
+			},
 		};
 
 		scheduler = await startScheduler(this, {

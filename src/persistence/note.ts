@@ -79,6 +79,16 @@ function renderFrontmatter(record: PaperRecord): string {
 			lines.push(`  - ${quote(reference)}`);
 		}
 	}
+	// Subscription provenance — the subscriptionKey(s) that collected this paper.
+	// Empty ([]) for a paper predating this field or not collected via a subscription.
+	if (p.collectedVia.length === 0) {
+		lines.push('collectedVia: []');
+	} else {
+		lines.push('collectedVia:');
+		for (const key of p.collectedVia) {
+			lines.push(`  - ${quote(key)}`);
+		}
+	}
 	lines.push(`readState: ${quote(record.readState)}`);
 	lines.push(`pg3d_sourceId: ${quote(p.sourceId)}`);
 	// Canonical web URL derived from sourceId (see paperUrl); omitted for an

@@ -44,6 +44,7 @@ function paper(n: number, over: Partial<Paper> = {}): Paper {
 		abstract: `Abstract ${n}`,
 		sourceId: `arxiv:${n}` as Paper['sourceId'],
 		references: ['arxiv:ref'] as Paper['references'],
+		collectedVia: ['keyword:test'],
 		embedding: null,
 		embeddingModel: null,
 		embeddingSource: null,
@@ -90,6 +91,7 @@ async function main() {
 		assert(fm.readState === 'unread', 'readState not mirrored');
 		assert(fm.pg3d_sourceId === 'arxiv:2', 'pg3d_sourceId not mirrored');
 		assert(Array.isArray(fm.references) && (fm.references as string[])[0] === 'arxiv:ref', 'references (cited papers) not mirrored');
+		assert(Array.isArray(fm.collectedVia) && (fm.collectedVia as string[])[0] === 'keyword:test', 'collectedVia (collecting subscription keys) not mirrored');
 		assert(!('schemaVersion' in fm) && !('embedding' in fm), 'note leaked non-mirrored wrapper fields');
 	});
 
@@ -212,6 +214,7 @@ async function main() {
 		const fm = parseNote((await fs.read('2020/unknown/Title 10 (10).md')) ?? '').frontmatter;
 		const rec = JSON.parse((await fs.read('2020/unknown/Title 10 (10).json')) ?? '{}');
 		assert(fm.citationCount === rec.paper.citationCount, 'managed field disagrees with record');
+		assert(Array.isArray(rec.paper.collectedVia) && rec.paper.collectedVia[0] === 'keyword:test', 'collectedVia not persisted in the JSON record');
 	});
 
 	await check('SC-002', 'hand-written body byte-for-byte unchanged across an update', async () => {
@@ -287,6 +290,18 @@ async function main() {
 		assert(Array.isArray(rec.paper.embedding) && rec.paper.embeddingModel === 'bge-small' && rec.paper.embeddingSource === 'local', 'record missing embedding metadata');
 		const md = (await fs.read('2020/unknown/Title 16 (16).md')) ?? '';
 		assert(!md.includes('0.42') && !md.toLowerCase().includes('embedding'), 'embedding leaked into the note');
+	});
+
+	await check('SC-collectedVia', 'collectedVia is a growing set: an update unions new subscription keys, never drops prior ones', async () => {
+		const fs = new InMemoryFileStore();
+		const store = new PaperStore(fs);
+		await store.upsert(input(paper(18, { collectedVia: ['keyword:a'] })));
+		// A later subscription match re-persists the same paper carrying only its own key;
+		// the merge must union, not overwrite.
+		await store.upsert(input(paper(18, { collectedVia: ['author:b'] })));
+		const rec = JSON.parse((await fs.read('2020/unknown/Title 18 (18).json')) ?? '{}');
+		const via = (rec.paper.collectedVia as string[]).slice().sort();
+		assert(via.length === 2 && via[0] === 'author:b' && via[1] === 'keyword:a', `collectedVia not unioned: ${JSON.stringify(rec.paper.collectedVia)}`);
 	});
 
 	// ---- Edge cases ---------------------------------------------------------

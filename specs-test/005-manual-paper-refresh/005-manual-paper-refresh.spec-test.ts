@@ -90,7 +90,7 @@ function paper(over: Partial<Paper> & { sourceId: PaperSourceId }): Paper {
 	return {
 		title: 'OLD TITLE', publicationYear: YEAR, authors: ['Alice'], citationCount: 0,
 		citationsKnown: true, abstract: 'OLD ABSTRACT', sourceId: over.sourceId, references: [],
-		embedding: null, embeddingModel: null, embeddingSource: null, ...over,
+		collectedVia: ['keyword:test'], embedding: null, embeddingModel: null, embeddingSource: null, ...over,
 	};
 }
 function newStore(): { store: PaperStore; fs: InMemoryFileStore } {
@@ -130,6 +130,9 @@ async function main(): Promise<void> {
 		assert(p.citationCount === 12 && p.citationsKnown === true, 'citation count + known updated');
 		assert(p.references.length === 1 && p.references[0] === 'arxiv:2101.11111', 'references updated');
 		assert(p.publicationYear === YEAR, 'publicationYear carried through unchanged');
+		// Refresh re-fetches provider content only; subscription provenance is not re-derived
+		// and must survive the { ...stored } rebuild unchanged.
+		assert(JSON.stringify(p.collectedVia) === JSON.stringify(['keyword:test']), 'collectedVia carried through refresh unchanged');
 	});
 
 	await check('US1.2', 'Refresh updates the existing record + note managed region (not a new note); user body preserved', async () => {

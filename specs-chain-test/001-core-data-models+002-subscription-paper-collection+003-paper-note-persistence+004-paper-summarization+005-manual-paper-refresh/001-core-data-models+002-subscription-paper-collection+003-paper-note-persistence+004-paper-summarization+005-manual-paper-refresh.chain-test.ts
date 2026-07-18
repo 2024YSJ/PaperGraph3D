@@ -221,7 +221,7 @@ async function main(): Promise<void> {
 			alreadyPersisted: async (sid) => store.has(sid),
 		};
 		async function* one(): AsyncIterable<PaperCandidate> { yield candidate(); }
-		await runCollectionPass(one(), hooks, () => true, () => undefined, noEnrich, () => undefined as never);
+		await runCollectionPass(one(), 'keyword:test', hooks, () => true, () => undefined, noEnrich, () => undefined as never);
 		assert(spy.calls.length === 1, 'the 004 provider was driven exactly once by 002');
 		const keys = Object.keys(spy.calls[0]!).sort();
 		assert(JSON.stringify(keys) === JSON.stringify(['abstract', 'citationCount', 'citationsKnown', 'title']), `only the 4 minimized fields crossed the seam (got ${keys.join(',')})`);
@@ -265,7 +265,7 @@ async function main(): Promise<void> {
 		const enrichUncited = async (): Promise<Map<PaperSourceId, import('../../src/collection/types').EnrichmentOutcome>> =>
 			new Map([[SID, { status: 'enriched', citationCount: 0, references: [] }]]);
 		async function* one(): AsyncIterable<PaperCandidate> { yield candidate(); }
-		await runCollectionPass(one(), hooks, () => true, () => undefined, enrichUncited, () => undefined as never);
+		await runCollectionPass(one(), 'keyword:test', hooks, () => true, () => undefined, enrichUncited, () => undefined as never);
 		const body = await managedBodyOf(fs, SID);
 		assert(body.includes('SUMMARY[Head Title]'), 'the 004 summary (not the raw abstract) is the managed-body prose');
 		assert(body.includes('## Future directions'), 'a Future directions section is rendered for the confirmed-uncited paper');
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
 			alreadyPersisted: async (sid) => store.has(sid),
 		};
 		async function* one(): AsyncIterable<PaperCandidate> { yield candidate(); }
-		await runCollectionPass(one(), hooksNone, () => true, () => undefined, noEnrich, () => undefined as never);
+		await runCollectionPass(one(), 'keyword:test', hooksNone, () => true, () => undefined, noEnrich, () => undefined as never);
 		const bodyA = await managedBodyOf(fs, SID);
 		assert(bodyA.trim() === 'Head Abstract', 'no summary → managed body is exactly the abstract (fallback)');
 		assert(!bodyA.includes('## Future directions'), 'no future-directions section without a generated one');
@@ -302,7 +302,7 @@ async function main(): Promise<void> {
 		const enrichCited = async (): Promise<Map<PaperSourceId, import('../../src/collection/types').EnrichmentOutcome>> =>
 			new Map([[SID, { status: 'enriched', citationCount: 40, references: [] }]]);
 		async function* one2(): AsyncIterable<PaperCandidate> { yield candidate(); }
-		await runCollectionPass(one2(), hooksCited, () => true, () => undefined, enrichCited, () => undefined as never);
+		await runCollectionPass(one2(), 'keyword:test', hooksCited, () => true, () => undefined, enrichCited, () => undefined as never);
 		const bodyB = await managedBodyOf(fs2, SID);
 		assert(bodyB.includes('SUMMARY[Head Title]'), 'cited paper still gets a summary');
 		assert(!bodyB.includes('## Future directions'), 'a cited paper renders no Future directions section');
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
 			alreadyPersisted: async (sid) => store.has(sid),
 		};
 		async function* one(): AsyncIterable<PaperCandidate> { yield candidate(); }
-		await runCollectionPass(one(), hooks, () => true, () => undefined, noEnrich, () => undefined as never);
+		await runCollectionPass(one(), 'keyword:test', hooks, () => true, () => undefined, noEnrich, () => undefined as never);
 		assert((await managedBodyOf(fs, SID)).includes('Head Abstract'), 'seed summary embeds the original abstract');
 
 		// Refresh with a NEW abstract; summarization enabled → 004 regenerates through refresh.
@@ -410,7 +410,7 @@ async function main(): Promise<void> {
 		async function* candidates(): AsyncIterable<PaperCandidate> { yield candidate(); }
 		// Drive the REAL 002 pipeline: dedup → batched enrich (shim) → promote (001) →
 		// baseline embedding (002 FR-044) → 004 summarize hook → persist (003). Summarization ON.
-		await runCollectionPass(candidates(), hooks, () => true, () => undefined, undefined, () => undefined as never);
+		await runCollectionPass(candidates(), 'keyword:test', hooks, () => true, () => undefined, undefined, () => undefined as never);
 
 		const collected = await store.get(SID);
 		assert(collected !== undefined && isValidPaper(collected), 'collected Paper is present and 001-valid');

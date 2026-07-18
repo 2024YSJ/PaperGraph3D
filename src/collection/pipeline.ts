@@ -1,6 +1,6 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
 import type { Subscription } from '../models/subscription';
-import { subscriptionConditions } from '../models/subscription';
+import { subscriptionConditions, subscriptionKey } from '../models/subscription';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
 import type { EmbeddingConfig } from './embeddingUpgrade';
 import { computeBaselineEmbedding } from './embedding';
@@ -31,6 +31,9 @@ function yieldToEventLoop(): Promise<void> {
 // the UI. See contracts/collection-pipeline.md § pipeline.ts.
 export async function runCollectionPass(
 	candidates: AsyncIterable<PaperCandidate>,
+	// Identity of the subscription driving this pass (subscriptionKey). Stamped onto each
+	// newly-collected paper's collectedVia, and unioned onto an already-persisted paper.
+	subscriptionKeyValue: string,
 	hooks: PipelineHooks,
 	isSummarizationEnabled: () => boolean,
 	getSemanticScholarApiKey: () => string | undefined,
@@ -50,7 +53,14 @@ export async function runCollectionPass(
 			continue;
 		}
 		// FR-009 dedup — already seen this run, or already persisted.
-		if (!(await claim(state, candidate.sourceId))) {
+		const claimResult = await claim(state, candidate.sourceId);
+		if (claimResult === 'duplicate') {
+			continue;
+		}
+		if (claimResult === 'alreadyPersisted') {
+			// The paper exists (earlier run / another subscription); don't re-process it,
+			// just record that THIS subscription also collected it.
+			await hooks.recordCollectedVia?.(candidate.sourceId, subscriptionKeyValue);
 			continue;
 		}
 		survivors.push(candidate);
@@ -77,6 +87,11 @@ export async function runCollectionPass(
 		if (paper === undefined) {
 			continue;
 		}
+
+		// Stamp the collecting subscription's identity. This is a freshly-collected
+		// (not-yet-persisted) paper, so its set is exactly this one subscription; any
+		// later subscription that also matches it is unioned in via recordCollectedVia.
+		paper.collectedVia = [subscriptionKeyValue];
 
 		// FR-044: attach the mandatory bundled baseline embedding at promotion,
 		// before persistence, independent of summarization/LLM (004). It is offline,
@@ -172,6 +187,8 @@ export async function runSubscriptionCheck(
 
 	await runCollectionPass(
 		toCandidates(),
+		// The Pick this function receives is exactly what subscriptionKey() consumes.
+		subscriptionKey(subscription),
 		hooks,
 		isSummarizationEnabled,
 		getSemanticScholarApiKey,

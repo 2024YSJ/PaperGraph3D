@@ -30,15 +30,22 @@ export interface PersistInput {
 // NOT clobber a stored non-null vector; only a non-null embedding replaces it
 // (FR-004, SC-007, Clarification 2026-07-08).
 function mergePaper(incoming: Paper, prev: Paper): Paper {
+	// Subscription provenance is a SET that only grows: union the prior record's
+	// collectedVia with the incoming one so a re-persist (a later subscription match, a
+	// refresh, a re-embed) never drops a subscription that already collected this paper.
+	const collectedVia = Array.from(
+		new Set([...(prev.collectedVia ?? []), ...(incoming.collectedVia ?? [])]),
+	);
 	if (incoming.embedding === null && prev.embedding !== null) {
 		return {
 			...incoming,
+			collectedVia,
 			embedding: prev.embedding,
 			embeddingModel: prev.embeddingModel,
 			embeddingSource: prev.embeddingSource,
 		};
 	}
-	return { ...incoming };
+	return { ...incoming, collectedVia };
 }
 
 // Field-scoped merge (FR-004): overwrite only carried fields; preserve wrapper
@@ -87,6 +94,9 @@ export function migrate(raw: unknown): PaperRecord {
 	if (paper.embedding === undefined) paper.embedding = null;
 	if (paper.embeddingModel === undefined) paper.embeddingModel = null;
 	if (paper.embeddingSource === undefined) paper.embeddingSource = null;
+	// Subscription provenance was added after these records were written: default a
+	// pre-existing paper's collectedVia to the empty set so it loads (and validates) cleanly.
+	if (paper.collectedVia === undefined) paper.collectedVia = [];
 
 	// A vector from the retired LLM embedding provider is in a space nothing can
 	// reach any more, and 'llm' is no longer a valid embeddingSource — left alone it

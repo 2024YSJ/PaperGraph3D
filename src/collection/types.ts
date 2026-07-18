@@ -71,6 +71,12 @@ export interface PipelineHooks {
 	summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
 	persist: (paper: import('../models/paper').Paper, summary?: SummaryResult) => Promise<void>;
 	alreadyPersisted: (sourceId: PaperSourceId) => Promise<boolean>;
+	// Called when a paper this subscription just collected is ALREADY persisted (from an
+	// earlier run or a different subscription). Records this subscription's key onto the
+	// stored paper's collectedVia set WITHOUT re-running enrichment/embedding/summarization
+	// — the lightweight provenance-union path that keeps a paper's full subscription set
+	// accurate. Optional: a pipeline wired without it simply doesn't track later matches.
+	recordCollectedVia?: (sourceId: PaperSourceId, subscriptionKey: string) => Promise<void>;
 }
 
 // In-memory dedup state for a single collection run (never survives past one tick/pass).

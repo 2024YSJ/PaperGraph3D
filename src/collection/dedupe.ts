@@ -13,15 +13,28 @@ export function createCollectionRunState(
 	return { seen: new Set<PaperSourceId>(), alreadyPersisted };
 }
 
-// Returns true if this sourceId has not yet been processed in this run and is not already
-// persisted; records it as seen when true. A false result means "duplicate, skip".
-export async function claim(state: CollectionRunState, sourceId: PaperSourceId): Promise<boolean> {
+// Outcome of claiming a sourceId this run:
+//   'new'             — not seen this run and not yet persisted: process it normally.
+//   'duplicate'       — already seen this run: skip entirely.
+//   'alreadyPersisted'— persisted by an earlier run/subscription: don't re-process it,
+//                       but the caller still records THIS subscription's provenance
+//                       (recordCollectedVia) before skipping. Marked seen so a paper
+//                       appearing twice in one run's feed is only unioned once.
+export type ClaimResult = 'new' | 'duplicate' | 'alreadyPersisted';
+
+// Classifies a sourceId for this run and records it as seen (except for a same-run
+// duplicate, which was already recorded on its first sighting).
+export async function claim(
+	state: CollectionRunState,
+	sourceId: PaperSourceId,
+): Promise<ClaimResult> {
 	if (state.seen.has(sourceId)) {
-		return false;
+		return 'duplicate';
 	}
 	if (await state.alreadyPersisted(sourceId)) {
-		return false;
+		state.seen.add(sourceId);
+		return 'alreadyPersisted';
 	}
 	state.seen.add(sourceId);
-	return true;
+	return 'new';
 }

@@ -236,7 +236,7 @@ async function main() {
 
 	await check('US2.3/SC-004', 'A paper found twice (same sourceId) is processed only once (dedup)', async () => {
 		const { hooks, persisted } = makeHooks();
-		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:1'), candidate('arxiv:2')]), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:1'), candidate('arxiv:2')]), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		assert(persisted.length === 2, 'two distinct papers persisted, duplicate collapsed');
 		const ids = persisted.map((p) => p.paper.sourceId).sort();
 		assert(ids[0] === 'arxiv:1' && ids[1] === 'arxiv:2', 'both distinct ids present once');
@@ -267,7 +267,7 @@ async function main() {
 		const { hooks, persisted } = makeHooks();
 		const enrich = async (): Promise<Map<PaperSourceId, EnrichmentOutcome>> =>
 			new Map<PaperSourceId, EnrichmentOutcome>([['arxiv:1' as PaperSourceId, { status: 'enriched', citationCount: 42, references: ['arxiv:2' as PaperSourceId] }]]);
-		await runCollectionPass(gen([candidate('arxiv:1')]), hooks, () => false, () => undefined, enrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:test', hooks, () => false, () => undefined, enrich);
 		const paper = persisted[0]!.paper;
 		assert(paper.citationsKnown === true, 'citationsKnown true after enrichment');
 		assert(paper.citationCount === 42, 'citationCount from provider');
@@ -279,7 +279,7 @@ async function main() {
 	// =================================================================
 	await check('EC-yeargate/FR-011', 'A candidate with no publication year is skipped, not persisted', async () => {
 		const { hooks, persisted } = makeHooks();
-		await runCollectionPass(gen([candidate('arxiv:1', { publicationYear: undefined }), candidate('arxiv:2')]), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1', { publicationYear: undefined }), candidate('arxiv:2')]), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		assert(persisted.length === 1 && persisted[0]!.paper.sourceId === 'arxiv:2', 'yearless candidate skipped');
 	});
 	await check('SC-007b/SC-008', 'Enrichment failure still persists the paper immediately with citationsKnown false', async () => {
@@ -289,7 +289,7 @@ async function main() {
 				['arxiv:1' as PaperSourceId, { status: 'transientFailure' }],
 				['arxiv:2' as PaperSourceId, { status: 'terminalAbsence' }],
 			]);
-		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:2')]), hooks, () => false, () => undefined, enrich);
+		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:2')]), 'keyword:test', hooks, () => false, () => undefined, enrich);
 		assert(persisted.length === 2, 'both persisted despite enrichment failure (no paper lost)');
 		assert(persisted.every((p) => p.paper.citationsKnown === false), 'citationsKnown false on failure');
 	});
@@ -299,17 +299,45 @@ async function main() {
 		// true on the gate check, false on the post-generation re-check → discard.
 		let n = 0;
 		const isSummEnabled = () => (n++ === 0);
-		await runCollectionPass(gen([candidate('arxiv:1')]), hooks, isSummEnabled, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:test', hooks, isSummEnabled, () => undefined, noEnrich);
 		assert(persisted.length === 1, 'paper still persisted');
 		assert(persisted[0]!.summary === undefined, 'stale summary discarded (abstract fallback)');
 	});
 	await check('SC-021/FR-044', 'Every promoted paper is persisted carrying the bundled baseline embedding', async () => {
 		const { hooks, persisted } = makeHooks();
-		await runCollectionPass(gen([candidate('arxiv:1')]), hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:test', hooks, () => false, () => undefined, noEnrich);
 		const paper = persisted[0]!.paper;
 		assert(Array.isArray(paper.embedding) && paper.embedding.length === 2048, 'baseline vector attached');
 		assert(paper.embeddingModel === BASELINE_EMBEDDING_MODEL, 'baseline model id recorded');
 		assert(paper.embeddingSource === 'local', 'embeddingSource local');
+	});
+	await check('collectedVia/new', 'A newly collected paper records the collecting subscription key in collectedVia', async () => {
+		const { hooks, persisted } = makeHooks();
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:ml', hooks, () => false, () => undefined, noEnrich);
+		const paper = persisted[0]!.paper;
+		assert(Array.isArray(paper.collectedVia) && paper.collectedVia.length === 1, 'exactly one collecting subscription recorded');
+		assert(paper.collectedVia[0] === 'keyword:ml', 'the collecting subscriptionKey is stored');
+	});
+	await check('collectedVia/union', 'A paper matched by a second subscription unions both keys without re-processing', async () => {
+		// A stateful harness mirroring what main.ts wires: an already-persisted paper is
+		// not re-processed; the second subscription's key is unioned onto its collectedVia.
+		const stored = new Map<string, Paper>();
+		let processed = 0;
+		const hooks: PipelineHooks = {
+			persist: async (paper) => { processed++; stored.set(paper.sourceId, paper); },
+			alreadyPersisted: async (id) => stored.has(id),
+			recordCollectedVia: async (id, key) => {
+				const p = stored.get(id);
+				if (p === undefined || p.collectedVia.includes(key)) return;
+				stored.set(id, { ...p, collectedVia: [...p.collectedVia, key] });
+			},
+		};
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'keyword:a', hooks, () => false, () => undefined, noEnrich);
+		await runCollectionPass(gen([candidate('arxiv:1')]), 'author:b', hooks, () => false, () => undefined, noEnrich);
+		assert(processed === 1, 'already-persisted paper not re-processed by the second subscription');
+		const paper = stored.get('arxiv:1')!;
+		assert(paper.collectedVia.length === 2, 'both subscriptions recorded');
+		assert(paper.collectedVia.includes('keyword:a') && paper.collectedVia.includes('author:b'), 'both subscription keys unioned');
 	});
 
 	// =================================================================
