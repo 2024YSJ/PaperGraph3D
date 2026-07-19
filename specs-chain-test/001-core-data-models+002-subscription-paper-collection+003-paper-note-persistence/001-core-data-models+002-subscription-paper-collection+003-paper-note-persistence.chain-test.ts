@@ -27,7 +27,7 @@ import type { PipelineHooks, EnrichmentOutcome } from '../../src/collection/type
 import { PaperStore } from '../../src/persistence/store';
 import { InMemoryFileStore } from '../../src/persistence/filestore';
 import { parseNote } from '../../src/persistence/note';
-import { classify, stemOf } from '../../src/persistence/reconcile';
+import { classify } from '../../src/persistence/reconcile';
 
 type Result = { id: string; desc: string; status: 'PASS' | 'FAIL' | 'SKIP'; note?: string };
 const results: Result[] = [];
@@ -52,8 +52,9 @@ function capturingHooks(): { hooks: PipelineHooks; captured: Paper[] } {
 	const captured: Paper[] = [];
 	return { hooks: { persist: async (p) => { captured.push(p); }, alreadyPersisted: async () => false }, captured };
 }
-// 003 shared (mirrored) frontmatter subset per 003 FR-002.
-const MIRRORED = ['title', 'authors', 'publicationYear', 'citationCount', 'readState', 'pg3d_sourceId'];
+// 003 shared (mirrored) frontmatter subset per 003 FR-002 (references amended in 2026-07-11;
+// collectedVia added with the subscription-provenance feature; url is derived from sourceId).
+const MIRRORED = ['title', 'authors', 'publicationYear', 'publicationDate', 'citationCount', 'references', 'collectedVia', 'readState', 'pg3d_sourceId', 'url'];
 
 async function main() {
 	// =================================================================
@@ -116,7 +117,7 @@ async function main() {
 		assert(fm['pg3d_sourceId'] === produced.sourceId, 'sourceId mirrored');
 		assert(Array.isArray(fm['authors']) && (fm['authors'] as string[]).join(',') === produced.authors.join(','), 'authors mirrored');
 	});
-	await check('C5', "[002→003] non-mirrored fields (references/embedding/timestamps/schemaVersion) never leak into the note", async () => {
+	await check('C5', "[002→003] non-mirrored fields (embedding/timestamps/schemaVersion) never leak; references + collectedVia ARE mirrored", async () => {
 		const { hooks, captured } = capturingHooks();
 		await runCollectionPass(gen([candidate('arxiv:9', { citationCount: 1 })]), 'keyword:test', hooks, () => false, () => undefined,
 			async () => new Map<PaperSourceId, EnrichmentOutcome>([['arxiv:9' as PaperSourceId, { status: 'enriched', citationCount: 1, references: ['arxiv:12345' as PaperSourceId] }]]));
@@ -128,7 +129,10 @@ async function main() {
 		const mdText = (await fs.read(mdPath))!;
 		const fm = parseNote(mdText).frontmatter;
 		for (const key of Object.keys(fm)) assert(MIRRORED.includes(key), `frontmatter key ${key} is within the mirrored subset`);
-		assert(!mdText.includes('arxiv:12345'), 'raw reference sourceId not leaked into the note');
+		// references is now mirrored (three-state, confirmed here) and collectedVia is present.
+		assert(JSON.stringify(fm['references']) === JSON.stringify(['arxiv:12345']), 'confirmed reference mirrored into the note frontmatter');
+		assert('collectedVia' in fm, 'collectedVia mirrored into the note frontmatter');
+		assert(mdText.includes('arxiv:12345'), 'confirmed reference sourceId appears in the note');
 		// Honest leak check: the distinctive embeddingModel id, the word "embedding", and a
 		// non-zero vector value (a long decimal that would not appear coincidentally) are all absent.
 		assert(!mdText.toLowerCase().includes('embedding'), 'no "embedding" text in the note');
@@ -170,8 +174,14 @@ async function main() {
 			const p = await store.get(id);
 			assert(p !== undefined && isValidPaper(p), `stored ${id} reads back as a valid 001 Paper`);
 			assert(Array.isArray(p!.embedding) && p!.embeddingModel === BASELINE_EMBEDDING_MODEL, `stored ${id} carries the 002 baseline embedding end-to-end`);
-			const md = (await fs.list()).find((f) => classify(f) === 'md' && stemOf(f) === stemOf(jsons.find((j) => j.includes(id.replace(':', '_')))!))!;
-			assert(parseNote((await fs.read(md))!).frontmatter['pg3d_sourceId'] === id, `note for ${id} mirrors the sourceId`);
+			// Locate the paper's note by its content sourceId (rename-safe, per 003 FR-009),
+			// not by guessing the sanitized filename.
+			const mdFiles = (await fs.list()).filter((f) => classify(f) === 'md');
+			let noteForId: string | undefined;
+			for (const md of mdFiles) {
+				if (parseNote((await fs.read(md))!).frontmatter['pg3d_sourceId'] === id) { noteForId = md; break; }
+			}
+			assert(noteForId !== undefined, `note for ${id} mirrors the sourceId`);
 		}
 	});
 	await check('E2', '[system] Re-collecting the same batch is a no-op that preserves the user body (002 dedup + 003 keying)', async () => {

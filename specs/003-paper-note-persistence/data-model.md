@@ -18,9 +18,9 @@ Source: `spec.md` (Key Entities, Functional Requirements, Clarifications) and `r
 
 **Serialization**: `wrap(input: PersistInput, prev?: PaperRecord): PaperRecord` builds/merges a record (field-scoped, FR-004); `unwrap(record): Paper` returns the nested `Paper`. Stored one `.json` per paper (FR-007).
 
-**Migration**: `migrate(raw: unknown): PaperRecord` — normalizes an older/foreign record: if `paper` lacks the embedding fields, set `embedding`/`embeddingModel`/`embeddingSource` to `null` (pending) and bump `schemaVersion`; never rejects a record for a missing embedding (FR-016/FR-021, Clarification 2026-07-08). Returns a valid current-version record or throws only on structurally unusable input (handled per FR-013).
+**Migration**: `migrate(raw: unknown): PaperRecord` — normalizes an older/foreign record: if `paper` lacks the embedding fields, set `embedding`/`embeddingModel`/`embeddingSource` to `null` (pending); if it lacks `collectedVia`, default it to `[]`; and bump `schemaVersion`. Never rejects a record for a missing embedding or a missing `collectedVia` (FR-016/FR-021, Clarification 2026-07-08). (A legacy `'llm'`-source embedding is additionally reset to pending, since that provider was retired.) Returns a valid current-version record or throws only on structurally unusable input (handled per FR-013).
 
-**Field-scoped merge** (FR-004, SC-007): an update overwrites only the `paper` fields and `updatedAt` it carries, and preserves every wrapper field it does not set (`summary`, `futureDirections`, `readState`, `createdAt`). The embedding follows a **preserve-unless-supplied** rule: an incoming `paper.embedding === null` (pending) MUST NOT overwrite a stored non-null vector — only a non-null incoming embedding replaces it (Clarification 2026-07-08).
+**Field-scoped merge** (FR-004, SC-007): an update overwrites only the `paper` fields and `updatedAt` it carries, and preserves every wrapper field it does not set (`summary`, `futureDirections`, `readState`, `createdAt`). The embedding follows a **preserve-unless-supplied** rule: an incoming `paper.embedding === null` (pending) MUST NOT overwrite a stored non-null vector — only a non-null incoming embedding replaces it (Clarification 2026-07-08). `paper.collectedVia` is a **grow-only set**: the merge **unions** the incoming and prior sets (`mergePaper`) so a re-persist — a later subscription match, a refresh, or a re-embed — never drops a subscription that already collected the paper.
 
 ## PaperNote (Markdown note — three regions)
 
@@ -28,7 +28,7 @@ Source: `spec.md` (Key Entities, Functional Requirements, Clarifications) and `r
 
 | Region | Content | Rule |
 |---|---|---|
-| Frontmatter (managed) | YAML mirroring the shared subset: `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId`, `url` (derived from `sourceId`; omitted for an unrecognized provider), plus `publicationDate` (when known) and `references` (three-state, keyed on `citationsKnown`) | FR-002. Rewritten wholesale on merge; `schemaVersion`/timestamps/embedding are **not** here, and `url` is derived rather than stored in the JSON record. |
+| Frontmatter (managed) | YAML mirroring the shared subset: `title`, `authors` (block sequence), `publicationYear`, `citationCount`, `readState`, `pg3d_sourceId`, `collectedVia` (block sequence of collecting `subscriptionKey`s, or `[]`), `url` (derived from `sourceId`; omitted for an unrecognized provider), plus `publicationDate` (when known) and `references` (three-state, keyed on `citationsKnown`) | FR-002. Rewritten wholesale on merge; `schemaVersion`/timestamps/embedding are **not** here, and `url` is derived rather than stored in the JSON record. |
 | Managed body block (managed) | Delimited `<!-- pg3d:begin -->` … `<!-- pg3d:end -->`; rendered prose: `abstract`, replaced by `summary` when 004 is on, plus `futureDirections` when applicable | FR-002. Rewritten wholesale on merge. |
 | User body (free-form) | Everything after the managed block | FR-005. **Never** modified, deleted, or parsed on update (delete removes it — FR-012). |
 

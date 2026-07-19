@@ -83,9 +83,9 @@ The spec's `/speckit-clarify` rounds (Sessions 2026-07-04/07/08) already resolve
 
 ## 9. OQ-4 — list-field rendering in frontmatter
 
-**Decision**: `authors` renders as a YAML block sequence (one `- name` per line) via `stringifyYaml`. `references` is **not** in the frontmatter at all (it is excluded from the FR-002 mirrored subset and lives only in the JSON record), so no rendering decision is needed for it. This closes OQ-4.
+**Decision**: `authors` renders as a YAML block sequence (one `- name` per line). `references` was originally excluded from the frontmatter (2026-07-08), but that was **amended on 2026-07-11**: `references` **is** now mirrored into the frontmatter with the `citationsKnown`-based three-state distinction (`null` = unconfirmed, `[]` = confirmed-none, or a block sequence of source ids = confirmed-with-citations), so the note surfaces a paper's outbound citations. The later `collectedVia` field (the collecting `subscriptionKey`s) is likewise a frontmatter list — a block sequence, or `[]` when empty. This closes OQ-4.
 
-**Rationale**: A block sequence is the readable, Obsidian-native way to show a multi-author list in frontmatter; excluding raw `references` sourceIds from the note keeps the human-facing surface clean and matches the fixed mirrored subset.
+**Rationale**: A block sequence is the readable, Obsidian-native way to show a multi-valued list (authors, references, collectedVia) in frontmatter. Rendering `references` behind `citationsKnown` keeps an empty list from being read as "not looked up yet"; the embedding vector remains the only paper field deliberately kept out of the note (non-human-readable numeric data, FR-022).
 
 ## 10. Verification strategy without a test framework
 

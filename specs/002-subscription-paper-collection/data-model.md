@@ -211,7 +211,9 @@ interface CollectionRunState {
 
 `CollectionRunState` never survives past a single scheduled tick or catch-up pass — it is constructed fresh each time `scheduler.ts` fires a check, per subscription-check-or-catch-up run (not shared across subscriptions run in the same tick, since two subscriptions checked in the same tick still need cross-subscription dedup — see contract in `contracts/collection-pipeline.md`).
 
-**Two-phase `runCollectionPass`** (research.md Decision 33): because enrichment is batched, `runCollectionPass` first *drains* its candidate iterable into an array (bounded ≤1,000 by the arXiv cap, Decision 11) and applies the `seen`/`alreadyPersisted`/year-gate filters, then batch-enriches the survivors in one `enrichFromSemanticScholar` call, then runs the sequential (one-at-a-time, event-loop-yielding — Decision 6) summarize→persist loop using the pre-fetched outcome map. The "no UI freeze" guarantee (FR-013) is preserved for the expensive per-paper summarize/persist work; only the cheap enrichment network call moves out of the per-candidate loop into a single batched phase.
+The `seen`/`alreadyPersisted` check is `claim(state, sourceId)`, which returns a three-way result — `'new'` (process normally), `'duplicate'` (seen this run; skip), or `'alreadyPersisted'` (persisted by an earlier run or a *different* subscription). For an `'alreadyPersisted'` result the pass does **not** re-process the paper but calls `hooks.recordCollectedVia(sourceId, subscriptionKey)` so this subscription is unioned into the paper's `collectedVia` provenance set (marked `seen` so it is unioned at most once per run). A newly-collected (`'new'`) paper is stamped `collectedVia = [subscriptionKey]` at promotion.
+
+**Two-phase `runCollectionPass`** (research.md Decision 33): because enrichment is batched, `runCollectionPass` first *drains* its candidate iterable into an array (bounded ≤1,000 by the arXiv cap, Decision 11) and applies the `claim` (`seen`/`alreadyPersisted`)/year-gate filters, then batch-enriches the survivors in one `enrichFromSemanticScholar` call, then runs the sequential (one-at-a-time, event-loop-yielding — Decision 6) summarize→persist loop using the pre-fetched outcome map. The "no UI freeze" guarantee (FR-013) is preserved for the expensive per-paper summarize/persist work; only the cheap enrichment network call moves out of the per-candidate loop into a single batched phase.
 
 **Applying the outcome before promotion** (research.md Decision 33, gap closed in analysis review): `enrichFromSemanticScholar` only returns a `Map<PaperSourceId, EnrichmentOutcome>` — it never mutates a candidate. Since `promote` (= 001's `toPaper`) derives `citationsKnown` from the *candidate's own* `citationCount !== undefined`, Phase 2 MUST look up each survivor's outcome and, when `status === 'enriched'`, overwrite the candidate's `citationCount`/`references` with the outcome's values **before** calling `promote` — otherwise a successfully-enriched paper would still promote with `citationsKnown = false`, silently defeating enrichment. For `'terminalAbsence'`/`'transientFailure'`, the candidate passes to `promote` unchanged.
 
@@ -237,9 +239,18 @@ interface PipelineHooks {
   summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
   persist: (paper: Paper, summary?: SummaryResult) => Promise<void>;
   alreadyPersisted: (sourceId: Paper['sourceId']) => Promise<boolean>;
+  // When a paper this subscription just collected is ALREADY persisted (from an earlier
+  // run or a different subscription), record THIS subscription's key onto the stored
+  // paper's collectedVia set WITHOUT re-running enrichment/embedding/summarization — the
+  // lightweight provenance-union path. Optional: a pipeline wired without it simply
+  // doesn't track later matches. Its subscriptionKey argument is subscriptionKey(sub).
+  recordCollectedVia?: (sourceId: Paper['sourceId'], subscriptionKey: string) => Promise<void>;
 }
 
-// runCollectionPass(candidates, hooks, isSummarizationEnabled, getSemanticScholarApiKey, enrich?, getEmbeddingConfig?) —
+// runCollectionPass(candidates, subscriptionKey, hooks, isSummarizationEnabled, getSemanticScholarApiKey, enrich?, getEmbeddingConfig?) —
+// `subscriptionKey` is the collecting subscription's identity (subscriptionKey(sub)),
+// stamped onto each newly-collected paper's collectedVia and unioned onto an
+// already-persisted one via recordCollectedVia. The remaining getters —
 // isSummarizationEnabled/getSemanticScholarApiKey/getEmbeddingConfig are FUNCTIONS, called live each time,
 // never captured booleans/strings (research.md Decision 26, FR-021) — see below. `enrich`
 // is an OPTIONAL DI seam (research.md Decision 36): omitted in production (defaults to the
@@ -279,5 +290,5 @@ The scheduler introduces no new *persisted* entity: due-ness is a pure function 
 
 ## Cross-entity notes
 
-- This feature adds three optional fields to 001's baseline, all FR-016-style additive extensions (each optional and absent by default, none removing or redefining a 001 field): `PluginSettings.semanticScholarApiKey?: string` (read by `semanticScholarClient.ts`, research.md Decision 12, FR-020) in `settings.ts`, and `Subscription.coveredFrom?` + `Subscription.backfillState?` (backfill watermarks, FR-033–040) in `subscription.ts`, with `isValidSubscription` widened to accept the latter two. It adds nothing to `Paper`. For forward collection it reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.{summarizationEnabled,semanticScholarApiKey}`; for backfill it additionally reads/writes `Subscription.{coveredFrom,backfillState}`. It produces `Paper` values via 001's own `toPaper` in both cases.
-- No association object (e.g. "which subscription found which paper") is introduced — per 001's data model, that link is explicitly this feature's concern but is not required to be persisted; a paper's `sourceId` alone is sufficient for the dedup/exists-already checks this feature needs (see `CollectionRunState.alreadyPersisted`).
+- This feature adds three optional fields to 001's baseline, all FR-016-style additive extensions (each optional and absent by default, none removing or redefining a 001 field): `PluginSettings.semanticScholarApiKey?: string` (read by `semanticScholarClient.ts`, research.md Decision 12, FR-020) in `settings.ts`, and `Subscription.coveredFrom?` + `Subscription.backfillState?` (backfill watermarks, FR-033–040) in `subscription.ts`, with `isValidSubscription` widened to accept the latter two. For forward collection it reads `Subscription.{type,value,checkIntervalHours,lastCheckedAt,enabled}` and `PluginSettings.{summarizationEnabled,semanticScholarApiKey}`; for backfill it additionally reads/writes `Subscription.{coveredFrom,backfillState}`. It produces `Paper` values via 001's own `toPaper` in both cases.
+- The "which subscription found which paper" link **is** recorded, as the 001 `Paper.collectedVia` set (a de-duplicated set of `subscriptionKey()` strings). This feature's pipeline populates it: it stamps the collecting subscription's key on a newly-collected paper at promotion, and unions later-matching subscriptions in via the `recordCollectedVia` hook (see the dedup section above and `contracts/collection-pipeline.md`). A paper's `sourceId` remains the sole key for the dedup/exists-already checks (see `CollectionRunState.alreadyPersisted`); `collectedVia` is provenance carried alongside it, not a dedup key.

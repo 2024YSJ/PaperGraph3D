@@ -88,15 +88,19 @@ async function main() {
 		assert(fm.readState === 'unread', 'readState default not surfaced');
 	});
 
-	// Seam negative: 003 FR-002 — fields OUTSIDE the shared subset must not leak.
-	await check('C3', '[001->003] non-mirrored 001 fields (references/abstract/embedding) do not leak into the note', () => {
+	// Seam negative: 003 FR-002 — fields OUTSIDE the shared subset must not leak; the
+	// mirrored subset (references three-state, collectedVia) DOES appear (amended 2026-07-11).
+	await check('C3', '[001->003] abstract/embedding/schemaVersion do not leak; references + collectedVia are mirrored', () => {
 		const paper = make001Paper(3, { embedding: [0.9], embeddingModel: 'm', embeddingSource: 'local' });
 		const note = renderNote(wrap({ paper }), '');
 		const fm = parseNote(note).frontmatter;
-		assert(!('references' in fm), 'raw references leaked into frontmatter');
+		// Mirrored subset present.
+		assert('references' in fm && deepEqual(fm.references, ['arxiv:ref']), 'references (confirmed, keyed on citationsKnown) not mirrored');
+		assert('collectedVia' in fm, 'collectedVia not mirrored into frontmatter');
+		// Non-subset fields absent. `citationsKnown` is encoded via references' three-state, not a key of its own.
 		assert(!('abstract' in fm), 'abstract leaked into frontmatter');
 		assert(!('embedding' in fm) && !('schemaVersion' in fm) && !('citationsKnown' in fm), 'non-subset field leaked into frontmatter');
-		assert(!note.includes('arxiv:ref'), 'a reference sourceId leaked into the note text');
+		assert(!note.toLowerCase().includes('embedding'), 'embedding leaked into the note text');
 	});
 
 	// Seam: 001 FR-019/022 embedding — persists in the record, never in the note.

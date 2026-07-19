@@ -141,18 +141,23 @@ async function main(): Promise<void> {
 		assert(fm['readState'] === 'unread', 'default readState should be unread');
 	});
 
-	// C4 [002->003 note] negative subset boundary: fields OUTSIDE the mirrored subset
-	// (references / embedding / schemaVersion / abstract) must NOT leak into frontmatter
-	// (003 FR-002). A single-spec test cannot catch this cross-seam leak.
-	await check('C4', '[002->003 note] non-subset fields (references/embedding/schemaVersion) do not leak to frontmatter', async () => {
+	// C4 [002->003 note] subset boundary: fields OUTSIDE the mirrored subset
+	// (embedding / schemaVersion / abstract / timestamps) must NOT leak into frontmatter,
+	// while the mirrored subset (references three-state, collectedVia) DOES appear
+	// (003 FR-002; references amended into the subset 2026-07-11). A single-spec test
+	// cannot catch this cross-seam leak.
+	await check('C4', '[002->003 note] non-subset fields do not leak; references + collectedVia are mirrored', async () => {
 		const paper = promote(enrichedCandidate());
 		assert(paper, 'promote() should return a Paper');
 		const fs = new InMemoryFileStore();
 		await new PaperStore(fs).upsert({ paper });
 		const fm = parseNote(await firstMd(fs)).frontmatter;
-		for (const leaked of ['references', 'embedding', 'embeddingModel', 'embeddingSource', 'schemaVersion', 'abstract', 'createdAt', 'updatedAt']) {
+		for (const leaked of ['embedding', 'embeddingModel', 'embeddingSource', 'schemaVersion', 'abstract', 'createdAt', 'updatedAt']) {
 			assert(!(leaked in fm), `frontmatter must not carry '${leaked}', but it did: ${stable(fm)}`);
 		}
+		// Mirrored subset present (references three-state + collectedVia).
+		assert(stable(fm.references) === stable(['arxiv:1409.0473']), `references (confirmed) not mirrored: ${stable(fm)}`);
+		assert('collectedVia' in fm, `collectedVia not mirrored: ${stable(fm)}`);
 	});
 
 	// C5 [002->003] negative: a candidate 001/002 HOLDS BACK (missing year) never yields a
