@@ -1,4 +1,6 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
+import type { Subscription } from '../models/subscription';
+import { subscriptionConditions } from '../models/subscription';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
 import type { EmbeddingConfig } from './embeddingUpgrade';
 import { computeBaselineEmbedding } from './embedding';
@@ -92,12 +94,13 @@ export async function runCollectionPass(
 			// Leave the embedding pending (null); persistence still proceeds.
 		}
 
-		// FR-045: if a non-bundled canonical provider is selected, upgrade the
-		// baseline to it at this seam (read live per paper). An upgrade failure
-		// returns undefined and the baseline is kept as pending upgrade — embedding
-		// never blocks persistence (001 FR-021 / 002 FR-046).
+		// FR-045: upgrade the baseline to the canonical SPECTER2 vector at this seam
+		// (read live per paper, so a model downloaded mid-batch takes effect for the
+		// rest of it). Returns undefined while the model is absent or on an inference
+		// failure, and the baseline is kept as pending upgrade — embedding never blocks
+		// persistence (001 FR-021 / 002 FR-046). reembedCorpus converges it later.
 		const embeddingConfig = getEmbeddingConfig?.();
-		if (embeddingConfig !== undefined && embeddingConfig.provider !== 'bundled') {
+		if (embeddingConfig !== undefined) {
 			const upgraded = await upgradeEmbedding(
 				paper.title,
 				paper.abstract,
@@ -144,7 +147,7 @@ export async function runCollectionPass(
 // queryArxiv's {truncated, coveredThrough} so the scheduler can record lastCheckedAt at the
 // covered boundary and surface truncation. This is startScheduler's runCheck dependency.
 export async function runSubscriptionCheck(
-	subscription: { type: 'keyword' | 'author' | 'arxivCategory'; value: string },
+	subscription: Pick<Subscription, 'type' | 'value' | 'additionalConditions'>,
 	window: { from: number; to: number },
 	hooks: PipelineHooks,
 	isSummarizationEnabled: () => boolean,
@@ -152,7 +155,11 @@ export async function runSubscriptionCheck(
 	enrich?: EnrichFn,
 	getEmbeddingConfig?: () => EmbeddingConfig,
 ): Promise<{ truncated: boolean; coveredThrough: number }> {
-	const { entries, truncated, coveredThrough } = await queryArxiv(subscription, window);
+	// FR-047: AND every condition (1 to 3) together in a single arXiv query.
+	const { entries, truncated, coveredThrough } = await queryArxiv(
+		subscriptionConditions(subscription),
+		window,
+	);
 
 	async function* toCandidates(): AsyncIterable<PaperCandidate> {
 		for (const entry of entries) {

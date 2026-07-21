@@ -18,6 +18,10 @@ type SubscriptionQuery = {
 	value: string;
 };
 
+// 002 FR-047: a subscription may AND up to 3 conditions together; arXiv's own query
+// syntax expresses this as `clause AND clause AND clause` directly (across any mix of
+// fields, including repeats of the same field), so no client-side filtering is needed.
+
 function twoDigits(value: number): string {
 	return String(value).padStart(2, '0');
 }
@@ -52,12 +56,13 @@ function searchClause(subscription: SubscriptionQuery): string {
 
 // Pure, network-free — exported so query construction is verifiable without a live call.
 export function buildArxivSearchUrl(
-	subscription: SubscriptionQuery,
+	conditions: SubscriptionQuery | SubscriptionQuery[],
 	window: { from: number; to: number },
 	page: { start: number; maxResults: number },
 ): string {
+	const clauses = (Array.isArray(conditions) ? conditions : [conditions]).map(searchClause);
 	const query =
-		`${searchClause(subscription)} AND ` +
+		`${clauses.join(' AND ')} AND ` +
 		`submittedDate:[${formatArxivDate(window.from)} TO ${formatArxivDate(window.to)}]`;
 	return (
 		`${ARXIV_API_URL}?search_query=${encodeURIComponent(query)}` +
@@ -128,7 +133,7 @@ function entryBaseId(entry: Element): string | undefined {
 }
 
 export async function queryArxiv(
-	subscription: SubscriptionQuery,
+	conditions: SubscriptionQuery | SubscriptionQuery[],
 	window: { from: number; to: number },
 ): Promise<{ entries: Element[]; truncated: boolean; coveredThrough: number }> {
 	// Empty/inverted window (e.g. clock-backward, FR-024): nothing to search, issue no call.
@@ -143,7 +148,7 @@ export async function queryArxiv(
 		if (page > 0) {
 			await delay(ARXIV_INTER_PAGE_DELAY_MS);
 		}
-		const url = buildArxivSearchUrl(subscription, window, {
+		const url = buildArxivSearchUrl(conditions, window, {
 			start: page * ARXIV_PAGE_SIZE,
 			maxResults: ARXIV_PAGE_SIZE,
 		});

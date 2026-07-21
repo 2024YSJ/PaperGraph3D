@@ -19,7 +19,9 @@ import {
 	computeCollectionWindow,
 	computeLagOverlapWindow,
 	computeBackfillWindow,
+	startScheduler,
 } from '../../src/collection/scheduler';
+import { enrichFromSemanticScholar } from '../../src/collection/enrichment';
 import { promote } from '../../src/collection/promotion';
 import {
 	parseSemanticScholarPaper,
@@ -210,6 +212,9 @@ async function main() {
 	});
 
 	await check('SC-014', 'A genuinely new subscription has its first check begin without waiting for the next tick, never processed concurrently with it', async () => {
+		// Fixed clock, as every other scheduler check here does — the point is that the
+		// check fires on registration rather than on a tick, so time must not advance.
+		const now = 10 * DAY;
 		let saved: unknown[] = [];
 		let scheduler: { checkNow: (s: Subscription) => Promise<void> } | undefined;
 		const store = createSubscriptionStore({
@@ -227,6 +232,8 @@ async function main() {
 		await store.register({ type: 'keyword', value: 'sc014' });
 		await new Promise((r) => setTimeout(r, 10));
 		assert(checkNowCalls === 1, `expected the immediate on-register check to fire exactly once, got ${checkNowCalls}`);
+	});
+
 	await check('US2.3/SC-004', 'A paper found twice (same sourceId) is processed only once (dedup)', async () => {
 		const { hooks, persisted } = makeHooks();
 		await runCollectionPass(gen([candidate('arxiv:1'), candidate('arxiv:1'), candidate('arxiv:2')]), hooks, () => false, () => undefined, noEnrich);

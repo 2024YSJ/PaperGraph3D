@@ -1,13 +1,30 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0 (amendment 2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
+Version change: 1.3.0 → 2.0.0 (amendment 2026-07-17: Principle V's UX clause is
+  redefined from bilingual (Korean + English) to English-only. All user-facing text
+  — commands, settings labels, notices, modals — is now plain English; the
+  requirement to serve Korean and English users in parallel is dropped. The
+  English-only-code half of the principle is unchanged.)
+Rationale: the project ships as public open source with an international contributor
+  base, and a single UI language keeps user-facing copy consistent and predictable
+  while removing the upkeep of parallel translations that drift out of sync.
 Modified principles:
-  - IV. Transparent Use of Sensitive APIs — the user-supplied local-transformer
-    URL option is a user-initiated model download, disclosed as opt-in external
-    access alongside the LLM API providers
-New/updated sections: Additional Constraints → "Platform target (desktop-only)" bullet
-  updated for the three-provider embedding model and the URL-fetch disclosure
+  - V. Bilingual UX, English-Only Code → V. English-Only UX and Code — the
+    bilingual UX mandate is removed and replaced with an English-only UX mandate;
+    the English-only-code requirement is retained.
+MAJOR, not MINOR: this is a backward-incompatible redefinition of a principle —
+  bilingual user-facing copy that previously satisfied Principle V now violates it.
+  Per Governance, redefinition of a principle is MAJOR.
+Follow-up applied: CLAUDE.md's constitution summary updated ("Bilingual UX/
+  English-only code" → "English-only UX and code"). AGENTS.md has no bilingual-UX
+  clause to change. Completed features' (001–005) Constitution Check records in
+  specs/*/plan.md and tasks.md are point-in-time evaluations against the
+  then-current constitution and are left as historical record, not rewritten.
+Templates: .specify/templates/* — no edit needed (no template encodes the UX
+  language rule; the plan Constitution Check reads the principles dynamically).
+Prior amendment: 1.2.0 → 1.3.0 (2026-07-16: the three-provider embedding selector retired in favour of ONE fixed on-device model (SPECTER2); embedding becomes unconditionally local with a one-time opt-in weights download)
+Prior amendment: 1.1.0 → 1.2.0 (2026-07-09: three explicitly-selected embedding providers — bundled baseline / user-supplied on-device local transformer (path or URL) / external LLM API — plus disclosure of the local-model URL-fetch as an opt-in external access)
 Prior amendment: 1.0.0 → 1.1.0 (2026-07-07: desktop-only platform decision + LLM embedding disclosure; Principles I and IV)
 Prior history: [TEMPLATE] → 1.0.0 (initial concrete ratification); modified principles then: N/A (first time placeholders filled in)
 Added sections:
@@ -15,7 +32,7 @@ Added sections:
   - II. Lifecycle-Safe Resource Management (NON-NEGOTIABLE)
   - III. Manifest Identity Stability
   - IV. Transparent Use of Sensitive APIs
-  - V. Bilingual UX, English-Only Code
+  - V. English-Only UX and Code
   - VI. Open-Source Code Quality & Extensibility
   - Additional Constraints (technology stack, style, security/privacy)
   - Development Workflow (build/lint gates, Spec Kit lifecycle)
@@ -98,18 +115,17 @@ MUST be off or fully disclosed at first use.
 access to their vault need to know exactly when that trust is extended
 outside it.
 
-### V. Bilingual UX, English-Only Code
+### V. English-Only UX and Code
 
-User-facing text (commands, settings labels, notices, modals) MUST stay
-understandable to both Korean- and English-speaking users — provide both
-languages where they diverge, or default to plain, translation-friendly
-English. Code comments, identifiers, commit messages, and internal docs MUST
-be written in English regardless of UI language, so the codebase reads
-uniformly for any contributor.
+User-facing text (commands, settings labels, notices, modals) MUST be written
+in plain, clear, translation-friendly English. Code comments, identifiers,
+commit messages, and internal docs MUST also be written in English, so the
+codebase and its interface read uniformly for any contributor.
 
-**Rationale**: The user base spans Korean and English speakers, but a public
-open-source codebase needs one consistent language for maintainers who join
-later.
+**Rationale**: The project ships as public open source with an international
+contributor base; a single UI language keeps user-facing copy consistent and
+predictable and removes the upkeep of parallel translations that drift out of
+sync.
 
 ### VI. Open-Source Code Quality & Extensibility
 
@@ -132,19 +148,21 @@ including the maintainer's own.
   — `manifest.json` `isDesktopOnly: true`. This is the deliberate, documented
   exception Principle I allows: the 3D visualization (007) and native local
   content-embedding + 2D projection (002/006) depend on desktop/Electron
-  capabilities not viable on Obsidian mobile. Content embeddings come from one
-  of three explicitly-selected providers (001 FR-022): a **bundled local
-  baseline** (default, fully offline, no setup), a **user-supplied local
-  transformer** the user points to by file path or URL and which runs
-  **on-device** (no paper data leaves the vault), or an **external LLM API**
-  (Claude / Gemini / OpenAI). Two of these involve external access: the
-  local-transformer **URL** option performs a user-initiated model download,
-  and the LLM API option sends title+abstract to the provider; like all
-  sensitive-API use these are opt-in, gated (a URL/path or API key the user
-  supplies), and disclosed per Principle IV. Selecting the bundled baseline or a
-  local-path model is fully offline. The plugin still functions fully offline by
-  default (bundled baseline embedding, no summaries) with all external options
-  off.
+  capabilities not viable on Obsidian mobile. Content embeddings are produced
+  **on-device by one fixed model** — SPECTER2, a citation-trained scientific
+  document encoder — and are **not user-selectable**. This is a constraint, not a
+  preference: only vectors sharing one embedding space can be projected together
+  by the graph (001 FR-020), so a selectable provider is a selectable
+  dimensionality, and no corpus survives the choice. A **bundled offline
+  baseline** covers papers collected before the model is present; the corpus
+  converges on the canonical space once it is. **No paper data ever leaves the
+  vault for embedding**, and no API key can enable it.
+  The model's weights are too large to ship inside `main.js` and Obsidian
+  installs nothing else, so they are **downloaded once into the plugin folder** —
+  a user-initiated fetch of a public model, opt-in and disclosed per Principle
+  IV, never automatic. Every embedding after that is offline. The plugin
+  functions fully offline by default (baseline embedding, no summaries) with all
+  external options off.
 - **Toolchain lock-in**: npm is the package manager and esbuild is the
   bundler; `esbuild.config.mjs` and the npm scripts are the source of truth
   for how `src/main.ts` becomes `main.js`.
@@ -193,4 +211,4 @@ there for needed edits. `/speckit-plan` MUST cite the specific principles a
 feature's design satisfies or deviates from; deviations require justification
 recorded in that feature's `plan.md` Complexity Tracking section.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-09
+**Version**: 2.0.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-17

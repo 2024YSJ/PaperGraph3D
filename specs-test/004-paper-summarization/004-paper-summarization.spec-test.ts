@@ -20,20 +20,12 @@ import {
 	SUMMARIZATION_PROVIDER_IDS,
 } from '../../src/services/summarization/providers/registry';
 import { __setNextResponse, type RequestUrlResponse } from './_obsidian-shim';
-import {
-	llmEmbeddingUpgrade,
-	type EmbeddingHookConfig,
-} from '../../src/services/summarization/embeddingHook';
 import { isUncited } from '../../src/services/summarization/isUncited';
 import {
 	MIN_GENERATED_TEXT_LENGTH,
 	SUMMARIZATION_DISCLOSURE_COPY,
-	llmEmbeddingModelId,
 } from '../../src/services/summarization/constants';
-import type {
-	LlmEmbeddingProvider,
-	SummarizationProvider,
-} from '../../src/services/summarization/types';
+import type { SummarizationProvider } from '../../src/services/summarization/types';
 import type { SummarizationInput } from '../../src/collection/pipeline';
 
 type Result = { id: string; desc: string; status: 'PASS' | 'FAIL' | 'SKIP'; note?: string };
@@ -67,18 +59,6 @@ function fakeSummarizer(
 		generate: (input, credential, signal) => { count += 1; return generate(input, credential, signal); },
 	};
 	return { provider, calls: () => count };
-}
-
-function fakeEmbedder(
-	id: string,
-	embed: LlmEmbeddingProvider['embed'],
-): { config: EmbeddingHookConfig; calls: () => number } {
-	let count = 0;
-	const provider: LlmEmbeddingProvider = {
-		id,
-		embed: (title, abstract, credential, signal) => { count += 1; return embed(title, abstract, credential, signal); },
-	};
-	return { config: { getProvider: () => provider }, calls: () => count };
 }
 
 // Fires any window.setTimeout callback on the next tick regardless of its delay, so
@@ -234,54 +214,10 @@ async function main() {
 		const b = await mk('anthropic')(citedInput());
 		assert(a !== undefined && b !== undefined && a.summary === b.summary, 'both providers drive identical hook behavior');
 	});
-	await check('FR-011', 'Summarization and embedding toggles are independent', async () => {
-		// summary works with no embedding credential anywhere in scope
-		const summary = await createSummarizeHook({
-			getProvider: () => fakeSummarizer('openai', () => Promise.resolve({ summary: LONG })).provider,
-			getCredential: () => 'k', notifyCredentialProblem: () => {},
-		})(citedInput());
-		assert(summary !== undefined && summary.summary === LONG, 'summary generated without any embedding config');
-		// embedding upgrade works with no summarization provider/credential anywhere in scope
-		const embed = fakeEmbedder('openai', () => Promise.resolve({ vector: [0.1, 0.2, 0.3], model: 'text-embedding-3-small' }));
-		const up = await llmEmbeddingUpgrade('T', 'A', 'embed-key', embed.config);
-		assert(up !== undefined && up.embeddingSource === 'llm', 'embedding upgraded without any summarization config');
-	});
 
 	// =================================================================
 	// LLM embedding upgrade seam
 	// =================================================================
-	await check('EMB.1', 'Missing credential → undefined, embed never called', async () => {
-		const embed = fakeEmbedder('openai', () => Promise.resolve({ vector: [0.1], model: 'm' }));
-		const r = await llmEmbeddingUpgrade('T', 'A', undefined, embed.config);
-		assert(r === undefined, 'no credential → no upgrade');
-		assert(embed.calls() === 0, 'embed was never invoked');
-	});
-	await check('EMB.2', 'Success → embeddingModel is llm:<model>:d<dim>, embeddingSource is "llm"', async () => {
-		const embed = fakeEmbedder('openai', () => Promise.resolve({ vector: [0.1, 0.2, 0.3], model: 'text-embedding-3-small' }));
-		const r = await llmEmbeddingUpgrade('T', 'A', 'k', embed.config);
-		assert(r !== undefined, 'a valid vector produces a result');
-		assert(r!.embeddingModel === 'llm:text-embedding-3-small:d3', 'naming contract: llm:<model>:d<vector length>');
-		assert(r!.embeddingModel === llmEmbeddingModelId('text-embedding-3-small', 3), 'matches the shared formatter');
-		assert(r!.embeddingSource === 'llm', 'source marked llm');
-		assert(r!.embeddingModel.startsWith('llm:'), 'satisfies reembed.ts isCanonical()\'s startsWith("llm:") check');
-	});
-	await check('EMB.3', 'Invalid vector (empty / non-finite) → undefined', async () => {
-		const empty = fakeEmbedder('openai', () => Promise.resolve({ vector: [], model: 'm' }));
-		assert((await llmEmbeddingUpgrade('T', 'A', 'k', empty.config)) === undefined, 'empty vector rejected');
-		const nan = fakeEmbedder('openai', () => Promise.resolve({ vector: [1, NaN], model: 'm' }));
-		assert((await llmEmbeddingUpgrade('T', 'A', 'k', nan.config)) === undefined, 'non-finite element rejected');
-	});
-	await check('EMB.4', 'Provider rejection / invalid-credentials → undefined, never throws', async () => {
-		const rej = fakeEmbedder('openai', () => Promise.reject(new Error('invalid-credentials (status 401)')));
-		assert((await llmEmbeddingUpgrade('T', 'A', 'k', rej.config)) === undefined, 'rejected credential falls back to baseline');
-		const err = fakeEmbedder('openai', () => Promise.reject(new Error('boom')));
-		assert((await llmEmbeddingUpgrade('T', 'A', 'k', err.config)) === undefined, 'generic error falls back to baseline');
-	});
-	await check('EMB.5', 'Timeout → undefined (never blocks persistence)', async () => {
-		const hung = fakeEmbedder('openai', () => new Promise(() => {}));
-		const r = await withImmediateTimers(() => llmEmbeddingUpgrade('T', 'A', 'k', hung.config));
-		assert(r === undefined, 'a hung embedding call falls back to the retained baseline via the bounded timeout');
-	});
 
 	// =================================================================
 	// openAiProvider marker parsing — deterministic via a canned requestUrl
@@ -371,13 +307,61 @@ async function main() {
 	});
 
 	// =================================================================
+	// FR-008a — an API rate-limit / quota (429) surfaces one throttled Notice and
+	// still falls back to the abstract (never blocks persistence).
+	// =================================================================
+	await check('FR-008a.hook', 'Rate-limited → undefined AND notifyRateLimited fires once, throttled across a batch', async () => {
+		let notified = 0;
+		const hook = createSummarizeHook({
+			getProvider: () => fakeSummarizer('gemini', () => Promise.reject(new Error('rate-limited (status 429)'))).provider,
+			getCredential: () => 'k',
+			notifyCredentialProblem: () => {},
+			notifyRateLimited: () => { notified += 1; },
+		});
+		const first = await hook(citedInput());
+		const second = await hook(citedInput());
+		assert(first === undefined && second === undefined, 'a rate-limited call still falls back to the abstract (never blocks)');
+		assert(notified === 1, 'the whole batch surfaces the limit exactly once, not per paper (throttled)');
+	});
+	await check('FR-008a.unwired', 'Rate-limited with no notifyRateLimited wired → undefined, no throw', async () => {
+		const hook = createSummarizeHook({
+			getProvider: () => fakeSummarizer('openai', () => Promise.reject(new Error('rate-limited (status 429)'))).provider,
+			getCredential: () => 'k', notifyCredentialProblem: () => {},
+		});
+		const r = await hook(citedInput());
+		assert(r === undefined, 'an unwired notifyRateLimited degrades to the prior silent abstract fallback');
+	});
+	await check('FR-008a.openai-429', 'OpenAI adapter maps HTTP 429 to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { message: 'Rate limit reached' } } });
+		let message = '';
+		try { await openAiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message), 'a 429 is classified rate-limited (drives the throttled Notice)');
+	});
+	await check('FR-008a.anthropic-429', 'Claude adapter maps HTTP 429 to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { message: 'rate limited' } } });
+		let message = '';
+		try { await anthropicProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message), 'a 429 from the Anthropic adapter is classified rate-limited');
+	});
+	await check('FR-008a.gemini-429', 'Gemini adapter maps HTTP 429 RESOURCE_EXHAUSTED to a rate-limited rejection', async () => {
+		__setNextResponse({ status: 429, text: '', json: { error: { status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } } });
+		let message = '';
+		try { await geminiProvider.generate(citedInput(), 'k', noSignal); } catch (e) { message = (e as Error).message; }
+		assert(/rate-limited/.test(message) && !/invalid-credentials/.test(message), 'a 429 quota error is classified rate-limited, not a credential problem');
+	});
+
+	// =================================================================
 	// FR-013 — disclosure copy authored for 008 to place
 	// =================================================================
 	await check('FR-013', 'Disclosure copy names what is sent (title+abstract) and plaintext storage', () => {
 		const c = SUMMARIZATION_DISCLOSURE_COPY;
 		assert(/title/i.test(c.whatIsSent) && /abstract/i.test(c.whatIsSent), 'summarization disclosure names title+abstract');
-		assert(/title/i.test(c.embeddingWhatIsSent) && /abstract/i.test(c.embeddingWhatIsSent), 'embedding disclosure names title+abstract');
 		assert(/plaintext/i.test(c.credentialStorage), 'credential-storage disclosure names plaintext storage');
+		// The embedding disclosure is gone because the data path it disclosed is gone
+		// (2026-07-16): embedding is on-device and sends nothing. Asserted rather than
+		// merely deleted — a disclosure outliving its data path is how Principle IV copy
+		// quietly starts lying about what leaves the vault.
+		assert(!('embeddingWhatIsSent' in c), 'no embedding disclosure: embedding sends nothing');
 	});
 
 	// =================================================================
@@ -386,8 +370,6 @@ async function main() {
 	skip('EC-inflight-discard', 'Toggling the feature off mid-generation discards the in-flight result (FR-009)', 'Enforced by src/collection/pipeline.ts re-checking isSummarizationEnabled() after the hook resolves (002-owned); createSummarizeHook has no enabled-flag knowledge');
 	skip('SC-001-pipeline', 'With the feature off, zero summarization calls are made during a real collection pass', 'The enabled-flag gate lives in pipeline.ts (002); covered there. This suite asserts the hook-level unconfigured/undefined paths (US1.1/US1.2)');
 	skip('SC-004-render', 'Generated text lands only in the note\'s managed region, never the user body', 'Placement is 003\'s wrap()/renderProse(); this suite asserts the return shape carries no body field (US1.7) but cannot exercise real note rendering here');
-	skip('isCanonical-direct', 'reembed.ts isCanonical() returns true for an llm:-prefixed model', 'isCanonical() is module-private in reembed.ts; its exact startsWith("llm:") predicate is asserted via the naming contract in EMB.2');
-	skip('smoke-openai', 'The real openAiProvider/openAiEmbeddingProvider round-trip against OpenAI', 'Network-touching requestUrl code; verified only by quickstart.md\'s manual in-vault smoke (a real API key)');
 
 	// ---- report ----
 	let p = 0, f = 0, s = 0;

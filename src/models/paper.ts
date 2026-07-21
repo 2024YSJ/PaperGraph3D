@@ -11,7 +11,13 @@ export type PaperSourceId = `${SourceProvider}:${string}`;
 // Recognized content-embedding provenance values, derived from this array the
 // same way SourceProvider is derived from SOURCE_PROVIDERS, so the runtime check
 // in isValidPaper() and the compile-time union never drift out of sync (FR-020).
-const EMBEDDING_SOURCES = ['local', 'llm'] as const;
+//
+// Only 'local' remains: embeddings are computed on-device and nothing else can
+// produce them (the 'llm' provider is retired). Kept as a union rather than dropped
+// so the stored field keeps saying where a vector came from — and so a future
+// provenance stays an additive change. persistence/record.ts's migrate() resets
+// legacy 'llm' vectors to pending before validation ever sees them.
+const EMBEDDING_SOURCES = ['local'] as const;
 
 export type EmbeddingSource = (typeof EMBEDDING_SOURCES)[number];
 

@@ -1,10 +1,20 @@
 # Spec-test report: 002-subscription-paper-collection
 
+> **[Re-run 2026-07-17 — 28 passed, 0 failed, 16 skipped]**
+>
+> This suite had not compiled since merge commit `a657b9e`, which introduced an
+> `SC-014` check without its closing `});`, without the `startScheduler` /
+> `enrichFromSemanticScholar` imports it needs, and without the fixed `now` clock the
+> other scheduler checks declare. `EC-8`/`EC-9`/`SC-014` therefore never ran. The merge
+> damage was mechanical, not a real defect in `src/`, and was already repaired in test
+> commit `22de90c`; this re-run confirms all 28 pass and refreshes the table + raw block,
+> which the earlier banner had corrected the count on but left un-synced.
+
 - **Spec**: `specs/002-subscription-paper-collection/spec.md`
-- **Source branch**: `develop`
-- **Date**: 2026-07-09
+- **Source branch**: `develop-feature/embedding-redesign`
+- **Date**: 2026-07-17
 - **`tsc --noEmit`**: PASS
-- **Result**: **25 passed, 0 failed, 16 skipped**
+- **Result**: **28 passed, 0 failed, 16 skipped**
 
 Verifies the current `src/collection/*` + `src/models/*` implementation against the
 spec's acceptance scenarios, success criteria, and edge cases. **Deterministic**: no
@@ -13,7 +23,9 @@ arXiv/Semantic Scholar calls, the Obsidian `Plugin` lifecycle, or DOM (arXiv Ato
 parsing uses `DOMParser`) are recorded as SKIP with a reason — the pure logic they sit
 on (window math, dedup, promotion, JSON parsing, embedding, store state) is asserted
 directly. `_obsidian-shim.ts` is retained only as an esbuild `--alias:obsidian` target
-so the import graph resolves; the asserted cases never invoke `requestUrl`.
+so the import graph resolves; the asserted cases never invoke `requestUrl`. Built with
+`--alias:obsidian=./specs-test/002-subscription-paper-collection/_obsidian-shim.ts` and
+`--external:@huggingface/transformers`.
 
 | id | scenario / SC | status | note |
 |----|---------------|--------|------|
@@ -29,6 +41,9 @@ so the import graph resolves; the asserted cases never invoke `requestUrl`.
 | EC-window-normal | Subsequent window = [lastCheckedAt, now] | PASS | |
 | FR-024 | Clock-backward → empty window | PASS | |
 | SC-020/FR-041 | Lag re-scan window, clamped to coveredFrom, undefined on first/backward | PASS | |
+| EC-8 | Batch enrichment rejects an arXiv-id-mismatched record → transientFailure | PASS | positional-misalignment guard |
+| EC-9 | Batch enrichment accepts an arXiv-id-matched record (control) → enriched | PASS | |
+| SC-014 | New sub's first check fires on registration, not on the next tick | PASS | immediate on-register check |
 | US2.3/SC-004 | Same paper twice → processed once (dedup) | PASS | via runCollectionPass |
 | US4.2 | Semantic Scholar JSON → citation shape, arXiv ids version-stripped | PASS | + toPaperSourceId mapping |
 | US4.3 | Unenriched promotion → 0 / [] / citationsKnown false | PASS | |
@@ -64,8 +79,8 @@ so the import graph resolves; the asserted cases never invoke `requestUrl`.
 - No spec-violating leniency was found in the asserted (pure) surface: the store's
   idempotency, empty-value rejection, never-backward `lastCheckedAt`,
   backfill-state transitions, the window math (first-window bound, clock-backward,
-  lag-overlap clamp), dedup, promotion defaults, and the baseline-embedding attach
-  all behave as the spec requires.
+  lag-overlap clamp), dedup, promotion defaults, the arXiv-id positional-misalignment
+  guard, and the baseline-embedding attach all behave as the spec requires.
 - The 16 SKIPs are the scheduler tick/load loop, live provider I/O, the backfill
   runner, on-demand check, and arXiv XML parsing (DOMParser). These are exercised
   in `quickstart.md`'s manual walkthrough (with stubbed clients / a real Obsidian
@@ -88,6 +103,9 @@ so the import graph resolves; the asserted cases never invoke `requestUrl`.
 [PASS] EC-window-normal — A subsequent check window spans [lastCheckedAt, now]
 [PASS] FR-024 — A clock-backward reading yields an empty window (from===to===now)
 [PASS] SC-020/FR-041 — The lag re-scan is [frontier.from - 4d, frontier.from], clamped to coveredFrom, undefined on first/backward
+[PASS] EC-8 — Batch enrichment REJECTS a record whose echoed arXiv id doesn't match the queried candidate — transientFailure, never enriched with another paper's citation data
+[PASS] EC-9 — Batch enrichment ACCEPTS a record whose echoed arXiv id matches the queried candidate (control) — enriched with its citation data
+[PASS] SC-014 — A genuinely new subscription has its first check begin without waiting for the next tick, never processed concurrently with it
 [PASS] US2.3/SC-004 — A paper found twice (same sourceId) is processed only once (dedup)
 [PASS] US4.2 — Semantic Scholar JSON parses into the citation shape (arXiv ids version-stripped)
 [PASS] US4.3 — A candidate promoted without enrichment: citationCount 0, references [], citationsKnown false
@@ -118,5 +136,5 @@ so the import graph resolves; the asserted cases never invoke `requestUrl`.
 [SKIP] SC-013 — Enriching N papers issues at most ⌈N/batchMax⌉ requests (Requires counting live Semantic Scholar batch requests)
 [SKIP] SC-015 — A bulk backfill collects from the chosen start date with zero duplicates (Backfill runner + live network (dedup mechanism covered by SC-004))
 
-Summary: 25 passed, 0 failed, 16 skipped
+Summary: 28 passed, 0 failed, 16 skipped
 ```

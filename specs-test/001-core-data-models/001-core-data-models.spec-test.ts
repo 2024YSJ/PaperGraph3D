@@ -255,7 +255,12 @@ check('SC-006', '100% of promoted papers carry a citationsKnown that reflects wh
 check('SC-007', 'Valid papers carry a content embedding + accurate embeddingModel/embeddingSource', () => {
 	assert(isValidPaper({ ...validPaper(), embedding: null, embeddingModel: null, embeddingSource: null }), 'pending embedding valid');
 	assert(isValidPaper({ ...validPaper(), embedding: [0.1, -0.2], embeddingModel: 'local-hashtf-v1-d2048', embeddingSource: 'local' }), 'real local embedding valid');
-	assert(isValidPaper({ ...validPaper(), embedding: [0.1], embeddingModel: 'openai-x', embeddingSource: 'llm' }), 'llm source valid');
+	// Was 'llm source valid' until 2026-07-16. The LLM provider is retired and 'local'
+	// is the only provenance, so this now asserts the opposite — and it is the reason
+	// persistence/record.ts's migrate() must reset legacy 'llm' vectors to pending
+	// BEFORE validation: reaching isValidPaper() with one would read as a corrupt
+	// record and lose the paper.
+	assert(!isValidPaper({ ...validPaper(), embedding: [0.1], embeddingModel: 'llm:openai-x:d1536', embeddingSource: 'llm' as unknown as 'local' }), 'retired llm source rejected');
 	assert(!isValidPaper({ ...validPaper(), embedding: [Number.NaN], embeddingModel: 'm', embeddingSource: 'local' }), 'non-finite vector element invalid');
 	assert(!isValidPaper({ ...validPaper(), embedding: ['x'] as unknown as number[], embeddingModel: 'm', embeddingSource: 'local' }), 'non-number vector element invalid');
 	assert(!isValidPaper({ ...validPaper(), embedding: [0.1], embeddingModel: 5 as unknown as string, embeddingSource: 'local' }), 'non-string embeddingModel invalid');

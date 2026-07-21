@@ -35,14 +35,18 @@ The fields this feature adds to 001's baseline (FR-016-style additive extensions
 interface PluginSettings {
   // ...001's existing fields...
   semanticScholarApiKey?: string; // optional; absent by default; read by semanticScholarClient.ts
-  // Explicit embedding-provider selection (001 FR-022 / FR-045). Absent -> the
-  // bundled baseline is canonical (the default). See EMBEDDING_PROVIDERS.
-  embeddingProvider?: 'bundled' | 'local-transformer' | 'llm';
-  // Local transformer model path or URL, read only when
-  // embeddingProvider === 'local-transformer' (FR-046).
-  localEmbeddingModel?: string;
+  // No embedding settings. [Amended 2026-07-16] This feature previously added
+  // embeddingProvider?: 'bundled' | 'local-transformer' | 'llm' and
+  // localEmbeddingModel?: string. Both are removed: the canonical space is one
+  // fixed on-device model (FR-045), so there is nothing to select and no model
+  // path to supply. isValidPluginSettings ignores unknown keys, so a data.json
+  // still carrying them loads rather than being rejected.
 }
 ```
+
+Where the model's weights live is not a setting either — it is a fixed location in
+the plugin's own folder, and its presence (not a stored flag) is what tells the
+pipeline whether the canonical space is reachable yet. See `src/collection/modelAssets.ts`.
 
 Absent (`undefined`) by default — enrichment behaves exactly as already specified (Decisions 7/12) when no key is configured; when present, `semanticScholarClient.ts` includes it as an `x-api-key` request header on every Semantic Scholar call (research.md Decision 12).
 
