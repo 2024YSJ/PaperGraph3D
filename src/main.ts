@@ -44,10 +44,7 @@ function invalidDataNotice(droppedCount: number): string {
 // identically whether or not this Notice is shown.
 function largeBackfillWindowNotice(subscription: Subscription): string {
 	const label = subscription.label;
-	return (
-		`PaperGraph3D: "${label}" 백필 범위가 넓어 많은 논문을 가져올 수 있습니다.\n` +
-		`The backfill window for "${label}" spans a long period and may collect a large number of papers.`
-	);
+	return `PaperGraph3D: The backfill window for "${label}" spans a long period and may collect a large number of papers.`;
 }
 
 // 004 FR-006/FR-008: summarization is enabled but its provider and/or credential is
