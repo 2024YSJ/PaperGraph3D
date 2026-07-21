@@ -59,6 +59,6 @@ The three spec directories are distinct stages, not copies: `specs-input/` holds
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current spec
-at specs/005-manual-paper-refresh/spec.md
+shell commands, and other important information, read the current plan
+at specs/006-graph-data-conversion/plan.md
 <!-- SPECKIT END -->
