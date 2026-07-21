@@ -1,6 +1,6 @@
 import type { SummarizationInput, SummaryResult } from '../../collection/pipeline';
 import { runGeneration } from './generate';
-import { isUncited } from './isUncited';
+import { isUncited } from '../../models/uncited';
 import type { SummarizationProvider } from './types';
 
 // FR-008a: a rate-limit Notice fires at most once per this window, so a whole batch
