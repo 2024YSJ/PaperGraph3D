@@ -58,9 +58,7 @@ export function createSummarizeHook(
 					lastRateLimitNoticeAt = now;
 					config.notifyRateLimited(
 						`Summarization API rate limit or quota reached (provider: ${provider.id}). ` +
-							'Papers are saved with the original abstract for now — try again later. ' +
-							`요약 API 한도에 도달했습니다 (제공자: ${provider.id}). ` +
-							'논문은 원문 초록으로 저장되며, 잠시 후 다시 시도하세요.',
+							'Papers are saved with the original abstract for now — try again later.',
 					);
 				}
 			}
