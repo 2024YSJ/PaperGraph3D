@@ -47,8 +47,7 @@ export function createSummarizeHook(
 			if (outcome.reason === 'invalid-credentials') {
 				config.notifyCredentialProblem(
 					`Summarization credential was rejected (provider: ${provider.id}). ` +
-						'Check the configured credential in settings. ' +
-						'요약 자격 증명이 거부되었습니다. 설정에서 자격 증명을 확인하세요.',
+						'Check the configured credential in settings.',
 				);
 			} else if (outcome.reason === 'rate-limited' && config.notifyRateLimited !== undefined) {
 				// FR-008a: surface the quota/rate-limit at most once per throttle window
@@ -59,9 +58,7 @@ export function createSummarizeHook(
 					lastRateLimitNoticeAt = now;
 					config.notifyRateLimited(
 						`Summarization API rate limit or quota reached (provider: ${provider.id}). ` +
-							'Papers are saved with the original abstract for now — try again later. ' +
-							`요약 API 한도에 도달했습니다 (제공자: ${provider.id}). ` +
-							'논문은 원문 초록으로 저장되며, 잠시 후 다시 시도하세요.',
+							'Papers are saved with the original abstract for now — try again later.',
 					);
 				}
 			}
