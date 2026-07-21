@@ -22,8 +22,14 @@ Run via esbuild + node with the obsidian shim alias, e.g.:
 npx esbuild specs-test/006-graph-data-conversion/006-graph-data-conversion.spec-test.ts \
   --bundle --platform=node --format=cjs \
   --alias:obsidian=./specs-test/006-graph-data-conversion/_obsidian-shim.ts \
+  --external:@huggingface/transformers \
   --outfile=<scratch>/006.cjs && node <scratch>/006.cjs
 ```
+
+> `--external:@huggingface/transformers` is **required**: 006 imports only the SPECTER2
+> constants from `localTransformer.ts`, whose lazy `@huggingface/transformers` import
+> (never executed here) would otherwise pull the onnxruntime native binding into the
+> bundle and break the build — the same external flag 002's spec-test uses.
 
 ## Scenarios to assert (maps to spec)
 

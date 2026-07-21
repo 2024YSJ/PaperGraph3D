@@ -74,6 +74,8 @@ src/
 ├── collection/
 │   └── localTransformer.ts   # 002 — SPECTER2_EMBEDDING_MODEL / _DIM (read-only import)
 └── graph/                    # NEW: this feature
+    ├── types.ts              # 006 output types (GraphNode/GraphConnection/GraphData/Position)
+    │                         #   + seam interfaces (GraphReadStore/ProjectionBasis/BasisCache)
     ├── convert.ts            # entry: corpus -> GraphData (nodes, connections, positions)
     ├── nodes.ts              # record -> node (year gate, uncited flag, carried fields)
     ├── edges.ts              # references -> directional connections (exact-id match, dangling drop)

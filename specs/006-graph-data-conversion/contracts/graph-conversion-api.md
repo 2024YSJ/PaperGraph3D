@@ -32,8 +32,9 @@ export interface GraphData {
 ```ts
 // The single conversion call. Read-only over 003; draws nothing; never re-embeds.
 export function convertToGraphData(
-  store: GraphReadStore,        // 003 read surface (subset below)
-  basisCache: BasisCache,       // regenerable projection-basis cache seam
+  store: GraphReadStore,                // 003 read surface (subset below)
+  basisCache: BasisCache,               // regenerable projection-basis cache seam
+  options?: { recompute?: boolean },    // recompute: true forces a basis refit — the FR-010 "recompute layout" trigger
 ): Promise<GraphData>;
 ```
 
