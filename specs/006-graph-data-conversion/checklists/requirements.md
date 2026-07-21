@@ -31,5 +31,6 @@
 
 ## Notes
 
-- Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
-- Five Open Questions (OQ-1..OQ-5) are recorded in the spec and deliberately deferred to `/speckit-clarify`. They are design refinements, not [NEEDS CLARIFICATION] blockers — the spec has a reasonable default position for each (PCA-only default, dangling edges dropped, edges matched by source-identifier equality, shared uncited helper reused). `/speckit-clarify` should resolve OQ-2 (edge-matching scheme) and OQ-5 (shared uncited helper location) first, as they most affect scope.
+- All 16 checklist items pass.
+- The spec was reconciled against `develop` (Session 2026-07-20): the canonical embedding is the fixed on-device SPECTER2 model, replacing the earlier three-way provider selector.
+- All five Open Questions (OQ-1..OQ-5) were resolved via `/speckit-clarify` (Session 2026-07-20): OQ-2 exact `PaperSourceId` edge matching; OQ-1 build edges from present references + carry `citationsKnown` for 007 to distinguish; OQ-5 relocate `isUncited` to a neutral core module (`src/models`); OQ-3 refit at ≥20% growth AND ≥25 new papers (tunable); OQ-4 PCA-only in v1 with UMAP deferred to future work. Plus an embedding clarification: conversion never re-embeds — it relies on 002's background re-embed and is eventually consistent.
