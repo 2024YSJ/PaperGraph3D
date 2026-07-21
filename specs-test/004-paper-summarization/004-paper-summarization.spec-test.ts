@@ -20,7 +20,7 @@ import {
 	SUMMARIZATION_PROVIDER_IDS,
 } from '../../src/services/summarization/providers/registry';
 import { __setNextResponse, type RequestUrlResponse } from './_obsidian-shim';
-import { isUncited } from '../../src/services/summarization/isUncited';
+import { isUncited } from '../../src/models/uncited';
 import {
 	MIN_GENERATED_TEXT_LENGTH,
 	SUMMARIZATION_DISCLOSURE_COPY,
