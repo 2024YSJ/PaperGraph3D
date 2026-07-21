@@ -12,6 +12,10 @@ import { isUncited } from '../../src/models/uncited';
 import { SPECTER2_EMBEDDING_DIM, SPECTER2_EMBEDDING_MODEL } from '../../src/collection/localTransformer';
 import type { Paper, PaperSourceId } from '../../src/models/paper';
 import type { BasisCache, GraphReadStore, ProjectionBasis } from '../../src/graph/types';
+// Chain-test seam: the REAL 003 store over the offline in-memory FileStore, to verify
+// conversion runs against an actual persisted corpus (not just the fake GraphReadStore).
+import { PaperStore } from '../../src/persistence/store';
+import { InMemoryFileStore } from '../../src/persistence/filestore';
 
 type Result = { id: string; desc: string; status: 'PASS' | 'FAIL' | 'SKIP'; note?: string };
 const results: Result[] = [];
@@ -251,6 +255,58 @@ async function main() {
 		const nowCanonical = canonical({ sourceId: 'arxiv:X' as PaperSourceId }, 0.5, 0.5); // simulate 002 re-embed converging it
 		const after = await convertToGraphData(fakeStore([...canonicalBatch('N', 4), nowCanonical]), fakeCache());
 		assert(nodeById(after, 'arxiv:X')?.positionSource === 'projected', 'projected after its record becomes canonical');
+	});
+
+	// =================================================================
+	// CHAIN — real 003 PaperStore (over the in-memory FileStore) → 006 convert.
+	// Proves the structural GraphReadStore contract holds against the ACTUAL store:
+	// upsert → JSON serialize → index → all() hydration feeds conversion, still with
+	// no network and no real Obsidian API (InMemoryFileStore is Obsidian-free).
+	// =================================================================
+	// One persisted corpus reused by the chain checks: 4 distinct canonical papers
+	// (C0 cites C1 and a dangling GHOST; C0 is confirmed-0 ⇒ uncited), a pending
+	// (null-embedding) paper, and a year-less paper that must be excluded.
+	const chainCorpus: Paper[] = [
+		canonical({ sourceId: 'arxiv:CH0' as PaperSourceId, title: 'Chain Zero', publicationYear: 2020, citationsKnown: true, citationCount: 0, references: ['arxiv:CH1', 'arxiv:GHOST'] as PaperSourceId[] }, 1, 0),
+		canonical({ sourceId: 'arxiv:CH1' as PaperSourceId, title: 'Chain One', publicationYear: 2021, citationsKnown: true, citationCount: 5 }, 0.9, 0.2),
+		canonical({ sourceId: 'arxiv:CH2' as PaperSourceId, title: 'Chain Two', publicationYear: 2022 }, 0, 1),
+		canonical({ sourceId: 'arxiv:CH3' as PaperSourceId, title: 'Chain Three', publicationYear: 2023 }, -1, 0.1),
+		paper({ sourceId: 'arxiv:CHP' as PaperSourceId, title: 'Chain Pending', publicationYear: 2024 }), // embedding null ⇒ fallback
+		paper({ sourceId: 'arxiv:CHY' as PaperSourceId, title: 'No Year', publicationYear: undefined as unknown as number }), // excluded
+	];
+	const persist = async (papers: Paper[]): Promise<PaperStore> => {
+		const store = new PaperStore(new InMemoryFileStore());
+		for (const p of papers) await store.upsert({ paper: p }); // sequential: stems disambiguate deterministically
+		return store;
+	};
+
+	await check('chain.store-to-graph', 'Real PaperStore → convert: persisted corpus hydrates into nodes + edges + projection', async () => {
+		const store = await persist(chainCorpus);
+		const data = await convertToGraphData(store, fakeCache());
+		// year-less excluded, the other five kept
+		assert(data.nodes.length === 5, 'five nodes (year-less excluded)');
+		assert(nodeById(data, 'arxiv:CHY') === undefined, 'year-less paper excluded');
+		// edge resolution via the real index: C0→C1 kept, dangling GHOST dropped, no fabricated node
+		assert(data.connections.length === 1, 'exactly one edge');
+		assert(data.connections[0]?.from === 'arxiv:CH0' && data.connections[0]?.to === 'arxiv:CH1', 'directional C0→C1');
+		assert(nodeById(data, 'arxiv:GHOST') === undefined, 'dangling reference fabricates no node');
+		// embeddings survived the JSON serialize/parse round-trip → canonical nodes projected
+		for (const id of ['arxiv:CH0', 'arxiv:CH1', 'arxiv:CH2', 'arxiv:CH3'] as PaperSourceId[]) {
+			assert(nodeById(data, id)?.positionSource === 'projected', `${id} projected from its hydrated embedding`);
+		}
+		assert(nodeById(data, 'arxiv:CHP')?.positionSource === 'fallback', 'pending paper falls back');
+		// the shared uncited rule survives persistence
+		assert(nodeById(data, 'arxiv:CH0')?.uncited === true, 'confirmed-0 stays uncited through the store');
+		assert(data.basisModel === SPECTER2_EMBEDDING_MODEL, 'basisModel is the canonical space');
+	});
+	await check('chain.deterministic', 'Same persisted corpus across independent stores → identical positions', async () => {
+		const canonicalOnly = chainCorpus.slice(0, 4);
+		const a = await convertToGraphData(await persist(canonicalOnly), fakeCache());
+		const b = await convertToGraphData(await persist(canonicalOnly), fakeCache());
+		for (const na of a.nodes) {
+			const nb = nodeById(b, na.id);
+			assert(nb !== undefined && nb.position.x === na.position.x && nb.position.y === na.position.y, `identical position for ${na.id} across stores`);
+		}
 	});
 
 	// =================================================================

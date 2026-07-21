@@ -19,7 +19,7 @@ npx esbuild specs-test/006-graph-data-conversion/006-graph-data-conversion.spec-
 
 ## Result (latest)
 
-**16 passed, 0 failed, 2 skipped.**
+**18 passed, 0 failed, 2 skipped.**
 
 | ID | Scenario | Status | Spec |
 |----|----------|--------|------|
@@ -39,6 +39,16 @@ npx esbuild specs-test/006-graph-data-conversion/006-graph-data-conversion.spec-
 | US2.refit | Crossing the growth threshold refits (re-saves) the basis | PASS | FR-010 |
 | US2.fallback | Pending/non-canonical → deterministic fallback, not mixed into the fit | PASS | FR-011, SC-007 |
 | US2.no-reembed | Never re-embeds; a pending node projects only once its record is canonical | PASS | FR-011 |
+| chain.store-to-graph | Real 003 `PaperStore` (over `InMemoryFileStore`) → `convertToGraphData`: persisted corpus hydrates into nodes + edges + projection | PASS | FR-001/FR-003/FR-005/FR-009/FR-012 |
+| chain.deterministic | Same persisted corpus across independent stores → identical positions | PASS | SC-005 |
+
+## Chain-test note
+
+`chain.*` exercise the **real** `PaperStore` (003) — not the fake `GraphReadStore` — over the
+Obsidian-free `InMemoryFileStore`: `upsert` → JSON serialize → index → `all()` on-demand
+hydration feeds conversion, confirming `PaperStore` structurally satisfies `GraphReadStore`
+and that embeddings/references survive the persistence round-trip. Still no network and no
+real Obsidian API. The basis cache remains the in-memory `BasisCache` fake (see SKIP below).
 
 ## SKIP (with reasons)
 

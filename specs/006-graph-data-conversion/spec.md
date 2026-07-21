@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-15
 
-**Status**: Draft
+**Status**: Implemented (2026-07-21)
 
 **Input**: User description: "Read the stored papers and convert them into graph data made of nodes and directional connections, ready to be drawn on screen. Conversion reads the canonical JSON records (not the Markdown note bodies). Each node has at least a title and publication year; papers without a publication year are excluded. Citation relationships become directional connections. Conversion also computes a 2D (x,y) similarity layout by projecting each node's content embedding, carrying publication year separately for the year axis. This conversion draws nothing — it only produces a data structure. It is read-only over the persisted records."
 
