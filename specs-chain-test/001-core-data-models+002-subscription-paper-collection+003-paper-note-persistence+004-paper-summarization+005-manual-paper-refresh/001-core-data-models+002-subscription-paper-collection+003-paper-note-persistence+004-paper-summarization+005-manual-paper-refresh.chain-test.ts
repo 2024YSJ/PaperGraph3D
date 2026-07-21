@@ -57,7 +57,7 @@ import { InMemoryFileStore } from '../../src/persistence/filestore';
 import { parseNote } from '../../src/persistence/note';
 // 004 — summarization (real hook + gating; provider is the stubbed boundary)
 import { createSummarizeHook } from '../../src/services/summarization/hook';
-import { isUncited } from '../../src/services/summarization/isUncited';
+import { isUncited } from '../../src/models/uncited';
 import { MIN_GENERATED_TEXT_LENGTH } from '../../src/services/summarization/constants';
 import type { SummarizationProvider } from '../../src/services/summarization/types';
 // 005 — refresh
