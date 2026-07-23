@@ -29,6 +29,7 @@ The year (z axis) is **not** part of `Position` — it lives on the node as `pub
 |-------|------|---------------|
 | `id` | `PaperSourceId` | = the paper's `sourceId`. Unique across the node list. |
 | `title` | `string` | From `Paper.title`. |
+| `authors` | `string[]` | From `Paper.authors` — full list, order preserved (malformed → `[]`). Display-only; 007 truncates for labels. |
 | `publicationYear` | `number` | Required — a record without it is excluded (FR-002). Carried for 007's year axis; never projected. |
 | `citationCount` | `number` | From `Paper.citationCount`. |
 | `citationsKnown` | `boolean` | From `Paper.citationsKnown`. Lets 007 tell "confirmed uncited" from "not yet enriched". |

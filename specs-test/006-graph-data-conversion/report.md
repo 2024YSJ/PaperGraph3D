@@ -23,7 +23,7 @@ npx esbuild specs-test/006-graph-data-conversion/006-graph-data-conversion.spec-
 
 | ID | Scenario | Status | Spec |
 |----|----------|--------|------|
-| US1.nodes | One node per record with a year; fields from the record | PASS | FR-001/FR-002, SC-001 |
+| US1.nodes | One node per record with a year; fields from the record (incl. full `authors` list, order preserved; author-less → `[]`) | PASS | FR-001/FR-002, SC-001 |
 | US1.year-less | Year-less record excluded | PASS | FR-002 |
 | US1.malformed | Malformed record skipped, rest convert, never throws | PASS | FR-006, SC-003 |
 | US1.edge | A cites B → directional A→B, no reverse | PASS | FR-003/FR-004, SC-002 |

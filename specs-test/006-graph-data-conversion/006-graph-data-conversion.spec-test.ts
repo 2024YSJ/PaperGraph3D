@@ -101,13 +101,17 @@ async function main() {
 	// =================================================================
 	await check('US1.nodes', 'One node per record with a year; fields read from the record', async () => {
 		const store = fakeStore([
-			paper({ sourceId: 'arxiv:1', title: 'One', publicationYear: 2020 }),
+			paper({ sourceId: 'arxiv:1', title: 'One', publicationYear: 2020, authors: ['Ada Lovelace', 'Alan Turing'] }),
 			paper({ sourceId: 'arxiv:2', title: 'Two', publicationYear: 2021 }),
 		]);
 		const data = await convertToGraphData(store, fakeCache());
 		assert(data.nodes.length === 2, 'two nodes');
 		const n = nodeById(data, 'arxiv:1');
 		assert(n !== undefined && n.title === 'One' && n.publicationYear === 2020, 'fields from the record');
+		// authors carried in full, order preserved (007 truncates for display)
+		assert(n !== undefined && n.authors.length === 2 && n.authors[0] === 'Ada Lovelace' && n.authors[1] === 'Alan Turing', 'full author list carried in order');
+		// a record with no authors yields an empty list, never excluded
+		assert(nodeById(data, 'arxiv:2')?.authors.length === 0, 'author-less record → empty authors, still a node');
 	});
 	await check('US1.year-less', 'A record without a numeric publication year is excluded', async () => {
 		const store = fakeStore([

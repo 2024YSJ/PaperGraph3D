@@ -21,6 +21,10 @@ export function toNodeBase(paper: Paper): NodeBase | undefined {
 	return {
 		id: paper.sourceId,
 		title: paper.title,
+		// Full list, order preserved; defensively coerced (a malformed non-array authors
+		// field yields [] rather than excluding the node — authors is display-only, not
+		// an identity/layout field).
+		authors: Array.isArray(paper.authors) ? [...paper.authors] : [],
 		publicationYear: paper.publicationYear,
 		citationCount,
 		citationsKnown,
