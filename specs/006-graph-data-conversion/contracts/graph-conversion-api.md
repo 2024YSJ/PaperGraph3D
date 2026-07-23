@@ -10,6 +10,7 @@ export interface Position { x: number; y: number }               // finite; year
 export interface GraphNode {
   id: PaperSourceId;                                              // = paper.sourceId, unique
   title: string;
+  authors: string[];                                             // = paper.authors, full list (007 truncates)
   publicationYear: number;                                       // required (year-less excluded)
   citationCount: number;
   citationsKnown: boolean;

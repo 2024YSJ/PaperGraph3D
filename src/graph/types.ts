@@ -12,6 +12,9 @@ export type PositionSource = 'projected' | 'fallback';
 export interface GraphNode {
 	id: PaperSourceId;
 	title: string;
+	// Full author list from the record (order preserved). 007 decides display/truncation
+	// (e.g. "First Author et al.") — 006 carries the complete list.
+	authors: string[];
 	publicationYear: number;
 	citationCount: number;
 	citationsKnown: boolean;
