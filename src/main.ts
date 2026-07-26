@@ -20,6 +20,7 @@ import {
 	type LocalModelLocation,
 } from './collection/modelAssets';
 import { resetPipeline } from './collection/localTransformer';
+import { describeOutcome, verifyEmbeddingRuntime } from './commands/verifyEmbeddingRuntime';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
@@ -68,6 +69,23 @@ function reembedDoneNotice(count: number): string {
 // and what to do, rather than presenting itself as a collection failure. Naming the
 // out-of-memory case specifically matters: restarting Obsidian actually fixes it,
 // whereas nothing the user does in-app will fix a broken install.
+function modelNotInstalledNotice(): string {
+	return 'PaperGraph3D: The embedding model is not installed — install it from settings first.';
+}
+
+function verifyingRuntimeNotice(): string {
+	return 'PaperGraph3D: Verifying embedding runtime…';
+}
+
+function verifyProgressNotice(completed: number, total: number, residentMb: number | undefined): string {
+	const memory = residentMb === undefined ? '' : ` (${residentMb} MB)`;
+	return `PaperGraph3D: Verifying embedding runtime — ${completed}/${total}${memory}`;
+}
+
+function verifyFailedToRunNotice(detail: string): string {
+	return `PaperGraph3D: Embedding verification could not run — ${detail}`;
+}
+
 function embeddingFailedNotice(failure: EmbeddingFailure, affected: number): string {
 	const scope = `${affected} paper(s) were saved without a graph embedding`;
 	if (failure.reason === 'out-of-memory') {
@@ -184,6 +202,18 @@ export default class PaperGraph3DPlugin extends Plugin {
 			},
 		};
 
+		// Local, offline check that the embedding runtime survives a corpus-sized run.
+		// The failure it looks for only reproduces inside Obsidian against the real
+		// onnxruntime build, so it cannot live in the offline suites. Explicit command,
+		// never automatic: it is minutes of CPU and the user must choose to spend it.
+		this.addCommand({
+			id: 'verify-embedding-runtime',
+			name: 'Verify embedding runtime',
+			callback: () => {
+				void this.runEmbeddingVerification();
+			},
+		});
+
 		scheduler = await startScheduler(this, {
 			// No subscription-management UI exists yet (owned by 008), so a user cannot
 			// intentionally configure a collection plan in-product. Until that ships, perform
@@ -239,6 +269,41 @@ export default class PaperGraph3DPlugin extends Plugin {
 			return await resolveModelLocation(this.app.vault.adapter, paths);
 		} catch {
 			return undefined;
+		}
+	}
+
+	/**
+	 * Drive the embedding runtime over a corpus-sized batch of varying-length inputs and
+	 * report where it stands. Progress goes to a persistent Notice (a run is minutes) and
+	 * the full outcome to the console, so a failure can be read after the Notice is gone.
+	 */
+	private async runEmbeddingVerification(): Promise<void> {
+		const location = this.modelLocation;
+		if (location === undefined) {
+			new Notice(modelNotInstalledNotice());
+			return;
+		}
+
+		const progress = new Notice(verifyingRuntimeNotice(), 0);
+		try {
+			const outcome = await verifyEmbeddingRuntime(location, (p) => {
+				progress.setMessage(verifyProgressNotice(p.completed, p.total, p.residentMb));
+			});
+			progress.hide();
+			// A run that dies is the finding this command exists to produce, so the
+			// structured outcome goes to the console where it survives the Notice being
+			// dismissed. A clean run needs no such record — the Notice says it all.
+			if (outcome.failedAt !== undefined) {
+				console.error('[PaperGraph3D] Embedding verification failed', outcome);
+			}
+			new Notice(`PaperGraph3D: ${describeOutcome(outcome)}`, 0);
+		} catch (error) {
+			progress.hide();
+			console.error('[PaperGraph3D] Embedding verification could not run', error);
+			new Notice(
+				verifyFailedToRunNotice(error instanceof Error ? error.message : String(error)),
+				0,
+			);
 		}
 	}
 
