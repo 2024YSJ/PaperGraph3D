@@ -139,9 +139,22 @@ export async function refreshOne(
 		const contentChanged = freshTitle !== stored.title || freshAbstract !== stored.abstract;
 		if (contentChanged) {
 			const computed = await computeCanonicalEmbedding(freshTitle, freshAbstract, getEmbeddingConfig());
-			updated.embedding = computed.embedding;
-			updated.embeddingModel = computed.embeddingModel;
-			updated.embeddingSource = computed.embeddingSource;
+			if (computed.result !== undefined) {
+				updated.embedding = computed.result.embedding;
+				updated.embeddingModel = computed.result.embeddingModel;
+				updated.embeddingSource = computed.result.embeddingSource;
+				updated.embeddingFailure = null;
+			} else {
+				// The embedding runtime failed. The content it describes has changed, so
+				// the stored vector is now stale — but a stale canonical vector still
+				// beats no vector, and 003's merge preserves it when the incoming one is
+				// null. Record the failure against it so the staleness is visible rather
+				// than silently carried forward as if current.
+				updated.embedding = null;
+				updated.embeddingModel = null;
+				updated.embeddingSource = null;
+				updated.embeddingFailure = computed.failure ?? null;
+			}
 		}
 
 		// Step 6/7: regenerate the 004 summary/future-directions text when the abstract

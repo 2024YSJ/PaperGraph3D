@@ -4,6 +4,7 @@ import {
 	DEFAULT_PLUGIN_SETTINGS,
 	PaperGraph3DSettingTab,
 } from './settings';
+import type { EmbeddingFailure } from './models/paper';
 import type { Subscription } from './models/subscription';
 import { createSubscriptionStore } from './collection/subscriptionStore';
 import { startScheduler, type SchedulerHandle } from './collection/scheduler';
@@ -60,6 +61,19 @@ function summarizationUnconfiguredNotice(): string {
 
 function reembedDoneNotice(count: number): string {
 	return `PaperGraph3D: Re-embedded ${count} paper(s).`;
+}
+
+// The embedding runtime failed part-way through. Papers are still collected and
+// readable — only their canonical vector is missing — so this reports the shortfall
+// and what to do, rather than presenting itself as a collection failure. Naming the
+// out-of-memory case specifically matters: restarting Obsidian actually fixes it,
+// whereas nothing the user does in-app will fix a broken install.
+function embeddingFailedNotice(failure: EmbeddingFailure, affected: number): string {
+	const scope = `${affected} paper(s) were saved without a graph embedding`;
+	if (failure.reason === 'out-of-memory') {
+		return `PaperGraph3D: The on-device embedding model ran out of memory — ${scope}. Restart Obsidian, then run the re-embed to finish them.`;
+	}
+	return `PaperGraph3D: The on-device embedding model failed (${failure.detail}) — ${scope}.`;
 }
 
 export default class PaperGraph3DPlugin extends Plugin {
@@ -165,6 +179,9 @@ export default class PaperGraph3DPlugin extends Plugin {
 					futureDirections: summary?.futureDirections,
 				}),
 			alreadyPersisted: async (sourceId) => paperStore.has(sourceId),
+			onEmbeddingFailed: (failure, affected) => {
+				new Notice(embeddingFailedNotice(failure, affected), 0);
+			},
 		};
 
 		scheduler = await startScheduler(this, {
@@ -234,6 +251,13 @@ export default class PaperGraph3DPlugin extends Plugin {
 			if (summary.reembedded > 0) {
 				new Notice(reembedDoneNotice(summary.reembedded));
 			}
+			// A converge pass that gave up is the ONLY signal that the corpus has papers
+			// the graph cannot place. It used to be counted and thrown away — only
+			// `reembedded > 0` was ever reported — so a pass that converged nothing
+			// because the runtime was dead looked exactly like a pass with nothing to do.
+			if (summary.failure !== undefined) {
+				new Notice(embeddingFailedNotice(summary.failure, summary.failed), 0);
+			}
 		} catch {
 			// A converge pass is best-effort; papers keep whatever vector they have.
 		}
@@ -269,7 +293,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 			throw new Error('The plugin folder could not be located.');
 		}
 		await downloadAssets(this.app.vault.adapter, paths, onProgress);
-		resetPipeline();
+		await resetPipeline();
 		this.modelLocation = await this.resolveModelLocation();
 	}
 

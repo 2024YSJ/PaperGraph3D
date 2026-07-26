@@ -1,7 +1,6 @@
-import type { Paper } from '../models/paper';
-import type { EmbeddingConfig } from './embeddingUpgrade';
-import type { EmbeddingResult } from './embedding';
-import { upgradeEmbedding } from './embeddingUpgrade';
+import type { EmbeddingFailure, Paper } from '../models/paper';
+import type { EmbeddingConfig, EmbeddingUpgrade } from './embeddingUpgrade';
+import { createEmbeddingAttempts, hasTripped, upgradeEmbedding } from './embeddingUpgrade';
 import { SPECTER2_EMBEDDING_MODEL } from './localTransformer';
 
 // Re-embed the persisted corpus into the canonical SPECTER2 space (002 FR-045).
@@ -26,6 +25,10 @@ export interface ReembedSummary {
 	reembedded: number;
 	skipped: number;
 	failed: number;
+	/** The failure that stopped the pass, when the embedding runtime broke. */
+	failure?: EmbeddingFailure;
+	/** True when the pass gave up early because the runtime kept failing. */
+	abandoned: boolean;
 }
 
 function defaultYield(): Promise<void> {
@@ -45,15 +48,16 @@ function isCanonical(paper: Paper): boolean {
 	return paper.embeddingModel === SPECTER2_EMBEDDING_MODEL;
 }
 
-// Produce the canonical vector for a paper, or undefined to leave it unchanged.
-// Only converge when the upgrade actually succeeds: a failure (model not downloaded,
-// inference error) must never overwrite a stored vector with a worse one, and the
-// baseline a paper already carries is better than nothing.
+// Produce the canonical vector for a paper. Only converge when the upgrade actually
+// succeeds: a failure (model not downloaded, inference error) must never overwrite a
+// stored vector with a worse one, and the baseline a paper already carries is better
+// than nothing.
 async function computeCanonical(
 	paper: Paper,
 	config: EmbeddingConfig,
-): Promise<EmbeddingResult | undefined> {
-	return upgradeEmbedding(paper.title, paper.abstract, config);
+	attempts: ReturnType<typeof createEmbeddingAttempts>,
+): Promise<EmbeddingUpgrade> {
+	return upgradeEmbedding(paper.title, paper.abstract, config, attempts);
 }
 
 export async function reembedCorpus(
@@ -61,7 +65,14 @@ export async function reembedCorpus(
 	config: EmbeddingConfig,
 	yieldToEventLoop: () => Promise<void> = defaultYield,
 ): Promise<ReembedSummary> {
-	const summary: ReembedSummary = { scanned: 0, reembedded: 0, skipped: 0, failed: 0 };
+	const summary: ReembedSummary = {
+		scanned: 0,
+		reembedded: 0,
+		skipped: 0,
+		failed: 0,
+		abandoned: false,
+	};
+	const attempts = createEmbeddingAttempts();
 
 	for await (const paper of store.all()) {
 		summary.scanned++;
@@ -70,14 +81,25 @@ export async function reembedCorpus(
 			continue;
 		}
 
-		const computed = await computeCanonical(paper, config);
-		if (computed === undefined) {
-			// Could not converge this paper — leave it as-is (pending).
+		const computed = await computeCanonical(paper, config, attempts);
+		if (computed.status !== 'ok') {
+			// Could not converge this paper — leave its stored vector as-is (pending).
 			summary.failed++;
+			if (computed.status === 'failed') {
+				summary.failure = computed.failure;
+				// Walking the rest of the corpus to fail identically on every paper
+				// wastes minutes and buries the real event. Stop and report: this is a
+				// converge pass, so whatever is left is still there for the next one.
+				if (hasTripped(attempts)) {
+					summary.abandoned = true;
+					return summary;
+				}
+			}
 			await yieldToEventLoop();
 			continue;
 		}
-		if (computed.embeddingModel === paper.embeddingModel) {
+		const result = computed.result;
+		if (result.embeddingModel === paper.embeddingModel) {
 			// Already in the target space by model id — nothing to write.
 			summary.skipped++;
 			await yieldToEventLoop();
@@ -88,9 +110,12 @@ export async function reembedCorpus(
 			await store.upsert({
 				paper: {
 					...paper,
-					embedding: computed.embedding,
-					embeddingModel: computed.embeddingModel,
-					embeddingSource: computed.embeddingSource,
+					embedding: result.embedding,
+					embeddingModel: result.embeddingModel,
+					embeddingSource: result.embeddingSource,
+					// Converging clears any recorded failure: the paper now has a
+					// canonical vector, so the old complaint no longer describes it.
+					embeddingFailure: null,
 				},
 			});
 			summary.reembedded++;
