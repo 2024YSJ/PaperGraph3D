@@ -16,6 +16,11 @@ export interface GraphNode {
 	// (e.g. "First Author et al.") — 006 carries the complete list.
 	authors: string[];
 	publicationYear: number;
+	// Month/day-precision date (ISO YYYY-MM-DD, UTC) when the record carries one
+	// (001 publicationDate); undefined for a year-only paper. Carried so 007 can map
+	// the time axis at day granularity rather than only by year. The year field stays
+	// the required key; this is additive precision.
+	publicationDate: string | undefined;
 	citationCount: number;
 	citationsKnown: boolean;
 	uncited: boolean;

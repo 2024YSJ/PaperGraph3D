@@ -26,6 +26,12 @@ export function toNodeBase(paper: Paper): NodeBase | undefined {
 		// an identity/layout field).
 		authors: Array.isArray(paper.authors) ? [...paper.authors] : [],
 		publicationYear: paper.publicationYear,
+		// Day-precision date when present (001 publicationDate), for 007's time axis;
+		// only accept a well-formed ISO YYYY-MM-DD string, else undefined (year-only).
+		publicationDate:
+			typeof paper.publicationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(paper.publicationDate)
+				? paper.publicationDate
+				: undefined,
 		citationCount,
 		citationsKnown,
 		uncited: isUncited({ citationCount, citationsKnown }),

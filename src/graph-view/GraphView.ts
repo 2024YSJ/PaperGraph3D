@@ -22,9 +22,12 @@ export interface GraphViewDeps {
 	adapterOptions?: AdapterOptions;
 }
 
-const COLOR_UNCITED = '#e8a33d'; // FR-005: uncited papers stand out
-const COLOR_FALLBACK = '#777777'; // not yet in the canonical projection (006 fallback)
-const COLOR_NODE = '#4a90d9'; // projected, cited/enriched
+// Color priority: a node with NO SPECTER2 embedding (fallback position) is drawn RED
+// so "not embedded yet" is unmistakable; otherwise uncited papers are orange, and
+// normal (embedded + cited) papers are blue.
+const COLOR_NOT_EMBEDDED = '#e03131'; // red: no SPECTER2 embedding (006 fallback position)
+const COLOR_UNCITED = '#e8a33d'; // orange: uncited (but embedded)
+const COLOR_NODE = '#4a90d9'; // blue: embedded + cited
 
 export class GraphView extends ItemView {
 	private readonly deps: GraphViewDeps;
@@ -189,7 +192,11 @@ export class GraphView extends ItemView {
 				.nodeRelSize(4)
 				.nodeVal((n: ForceNode) => Math.max(1, Math.log2(n.citationCount + 1) + 1))
 				.nodeColor((n: ForceNode) =>
-					n.uncited ? COLOR_UNCITED : n.positionSource === 'fallback' ? COLOR_FALLBACK : COLOR_NODE,
+					n.positionSource === 'fallback'
+						? COLOR_NOT_EMBEDDED
+						: n.uncited
+							? COLOR_UNCITED
+							: COLOR_NODE,
 				)
 				.nodeLabel((n: ForceNode) => this.nodeLabelHtml(n))
 				.nodeOpacity(0.9)
