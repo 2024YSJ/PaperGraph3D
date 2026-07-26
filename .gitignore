@@ -26,3 +26,9 @@ data.json
 
 # ad hoc manual verification scripts (see specs/*/quickstart.md)
 scratch/
+
+# dev-only test harness (companion plugin for manual testing; never released)
+# Ignored so `git clean -fd` leaves it alone, the same reason main.js survives.
+test-harness/
+src/devtest/
+esbuild.devtest.mjs
