@@ -71,6 +71,12 @@ export interface PipelineHooks {
 	summarize?: (input: SummarizationInput) => Promise<SummaryResult | undefined>;
 	persist: (paper: import('../models/paper').Paper, summary?: SummaryResult) => Promise<void>;
 	alreadyPersisted: (sourceId: PaperSourceId) => Promise<boolean>;
+	// Called ONCE at the end of a pass in which the canonical embedding runtime failed,
+	// with how many papers it affected. A pass that collects papers the graph cannot
+	// place must say so — silently persisting them was how an exhausted runtime went
+	// unnoticed for a whole corpus. Not per paper: the failure is one event with a
+	// count, and a Notice per paper would be unusable.
+	onEmbeddingFailed?: (failure: import('../models/paper').EmbeddingFailure, affected: number) => void;
 }
 
 // In-memory dedup state for a single collection run (never survives past one tick/pass).

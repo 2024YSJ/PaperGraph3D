@@ -21,6 +21,40 @@ const EMBEDDING_SOURCES = ['local'] as const;
 
 export type EmbeddingSource = (typeof EMBEDDING_SOURCES)[number];
 
+// Why the canonical (SPECTER2) embedding could not be produced for a paper. Recorded
+// on the paper rather than swallowed, because the two ways a paper can lack a
+// canonical vector are NOT the same thing and were previously indistinguishable:
+// "the model is not installed" is an expected, self-healing state, whereas "the
+// on-device runtime failed" is a fault the user has to know about. Without this
+// field, an exhausted embedding runtime silently downgraded every subsequent paper
+// to the lexical baseline for the rest of the run, and nothing recorded that it had
+// happened — the corpus just quietly stopped being projectable.
+const EMBEDDING_FAILURE_REASONS = ['out-of-memory', 'inference-error'] as const;
+
+export type EmbeddingFailureReason = (typeof EMBEDDING_FAILURE_REASONS)[number];
+
+export interface EmbeddingFailure {
+	reason: EmbeddingFailureReason;
+	/** Runtime error text, truncated — the detail a user needs to act on. */
+	detail: string;
+	/** Epoch ms of the failed attempt. */
+	at: number;
+}
+
+export function isEmbeddingFailure(value: unknown): value is EmbeddingFailure {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.reason === 'string' &&
+		(EMBEDDING_FAILURE_REASONS as readonly string[]).includes(candidate.reason) &&
+		typeof candidate.detail === 'string' &&
+		typeof candidate.at === 'number' &&
+		Number.isFinite(candidate.at)
+	);
+}
+
 export interface PaperCandidate {
 	title: string;
 	publicationYear: number | undefined;
@@ -101,6 +135,12 @@ export interface Paper {
 	embedding: number[] | null;
 	embeddingModel: string | null;
 	embeddingSource: EmbeddingSource | null;
+	// The most recent canonical-embedding failure, or null when the last attempt
+	// succeeded or none was ever made. Always describes the LATEST attempt: a
+	// successful embedding clears it. A pending (null) embedding paired with a
+	// non-null failure means "tried and failed", which is what distinguishes a fault
+	// from a paper that is merely waiting its turn (see EmbeddingFailure).
+	embeddingFailure: EmbeddingFailure | null;
 }
 
 export function isPaperSourceId(value: string): value is PaperSourceId {
@@ -167,6 +207,9 @@ export function toPaper(candidate: PaperCandidate): Paper | undefined {
 		embedding: candidate.embedding ?? null,
 		embeddingModel: candidate.embeddingModel ?? null,
 		embeddingSource: candidate.embeddingSource ?? null,
+		// Promotion never attempts the canonical embedding, so there is nothing to
+		// report yet; collection fills this in if its upgrade attempt fails.
+		embeddingFailure: null,
 	};
 }
 
@@ -212,6 +255,11 @@ export function isValidPaper(data: unknown): data is Paper {
 			(typeof candidate.embeddingSource === 'string' &&
 				(EMBEDDING_SOURCES as readonly string[]).includes(
 					candidate.embeddingSource,
-				)))
+				))) &&
+		// Additive (schema v3). Records written before this field existed are
+		// normalized to null by persistence/record.ts's migrate(), which runs before
+		// validation — so a strict check here never reads an old record as corruption.
+		(candidate.embeddingFailure === null ||
+			isEmbeddingFailure(candidate.embeddingFailure))
 	);
 }

@@ -59,6 +59,7 @@ const validPaper = (): Paper => ({
 	embedding: null,
 	embeddingModel: null,
 	embeddingSource: null,
+	embeddingFailure: null,
 });
 const validCandidate = (): PaperCandidate => ({
 	title: 'A paper',

@@ -47,6 +47,7 @@ function paper(n: number, over: Partial<Paper> = {}): Paper {
 		embedding: null,
 		embeddingModel: null,
 		embeddingSource: null,
+		embeddingFailure: null,
 		...over,
 	};
 }
