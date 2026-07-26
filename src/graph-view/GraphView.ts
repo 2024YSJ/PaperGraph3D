@@ -1,5 +1,6 @@
 import { ItemView, Menu, type WorkspaceLeaf } from 'obsidian';
 import ForceGraph3D from '3d-force-graph';
+import * as THREE from 'three';
 import type { GraphData } from '../graph/types';
 import {
 	toForceGraphData,
@@ -41,6 +42,7 @@ export class GraphView extends ItemView {
 	private full: ForceGraphData = { nodes: [], links: [] };
 	private hidden = new Set<string>();
 	private resizeObserver?: ResizeObserver;
+	private axisGroup?: any;
 
 	constructor(leaf: WorkspaceLeaf, deps: GraphViewDeps) {
 		super(leaf);
@@ -97,6 +99,10 @@ export class GraphView extends ItemView {
 	async onClose(): Promise<void> {
 		this.resizeObserver?.disconnect();
 		this.resizeObserver = undefined;
+		if (this.axisGroup !== undefined) {
+			this.disposeGroup(this.axisGroup);
+			this.axisGroup = undefined;
+		}
 		// Release the WebGL context / animation loop (constitution Principle II).
 		const g = this.graph as unknown as { _destructor?: () => void } | undefined;
 		g?._destructor?.();
@@ -234,6 +240,69 @@ export class GraphView extends ItemView {
 		this.graph.graphData({
 			nodes,
 			links: links.map((l) => ({ source: this.endId(l.source), target: this.endId(l.target) })),
+		});
+
+		this.drawTimeAxis(nodes);
+	}
+
+	// Draw the z (time) axis: a line spanning the visible nodes' depth range, with date
+	// tick labels, so the depth dimension reads as a timeline. Added directly to the
+	// underlying ThreeJS scene (3d-force-graph exposes it via .scene()).
+	private drawTimeAxis(nodes: ForceNode[]): void {
+		const scene = this.graph?.scene?.() as any;
+		if (scene === undefined || scene === null) return;
+
+		if (this.axisGroup !== undefined) {
+			scene.remove(this.axisGroup);
+			this.disposeGroup(this.axisGroup);
+			this.axisGroup = undefined;
+		}
+		if (nodes.length === 0) return;
+
+		let minZ = Infinity;
+		let maxZ = -Infinity;
+		for (const n of nodes) {
+			if (n.fz < minZ) minZ = n.fz;
+			if (n.fz > maxZ) maxZ = n.fz;
+		}
+		if (!Number.isFinite(minZ) || !Number.isFinite(maxZ)) return;
+
+		const group = new THREE.Group();
+		// Extend the axis well past the node cloud so the timeline reads as a continuous
+		// line, not just the span of current data. The cloud is recentered on the origin,
+		// so the axis runs through its middle (0,0). A solid shaft (cylinder) + arrowhead
+		// (cone) points from past → present (+z), giving direction without date labels.
+		const range = maxZ - minZ;
+		const ext = Math.max(140, range * 0.5);
+		const z0 = minZ - ext;
+		const z1 = maxZ + ext;
+		const length = z1 - z0;
+		const headLength = Math.min(48, length * 0.06);
+		const shaftLength = length - headLength;
+		const material = new THREE.MeshBasicMaterial({ color: 0x6b7078, transparent: true, opacity: 0.7 });
+
+		// Shaft: a thin cylinder (real thickness — a plain line ignores linewidth on WebGL).
+		const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, shaftLength, 8), material);
+		shaft.rotation.x = Math.PI / 2; // cylinder's default +Y axis → +Z
+		shaft.position.set(0, 0, z0 + shaftLength / 2);
+		group.add(shaft);
+
+		// Arrowhead at the present (+z) end.
+		const head = new THREE.Mesh(new THREE.ConeGeometry(3, headLength, 14), material);
+		head.rotation.x = Math.PI / 2; // cone tip → +Z
+		head.position.set(0, 0, z0 + shaftLength + headLength / 2);
+		group.add(head);
+
+		scene.add(group);
+		this.axisGroup = group;
+	}
+
+	private disposeGroup(group: any): void {
+		group.traverse((obj: any) => {
+			obj.geometry?.dispose?.();
+			const material = obj.material;
+			if (Array.isArray(material)) material.forEach((m: any) => m.dispose?.());
+			else material?.dispose?.();
 		});
 	}
 

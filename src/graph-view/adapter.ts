@@ -26,6 +26,8 @@ export interface ForceNode {
 	id: string;
 	title: string;
 	publicationYear: number;
+	// Carried through for the time-axis tick labels (007 draws z-axis date ticks).
+	publicationDate: string | undefined;
 	citationCount: number;
 	citationsKnown: boolean;
 	uncited: boolean;
@@ -83,6 +85,7 @@ export function toForceGraphData(
 		id: n.id,
 		title: n.title,
 		publicationYear: n.publicationYear,
+		publicationDate: n.publicationDate,
 		citationCount: n.citationCount,
 		citationsKnown: n.citationsKnown,
 		uncited: n.uncited,
