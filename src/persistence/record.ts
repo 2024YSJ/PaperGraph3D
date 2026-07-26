@@ -3,8 +3,9 @@ import type { Paper } from '../models/paper';
 export type ReadState = 'unread' | 'read';
 
 // Bump when the wrapped-record shape changes so migrate() can normalize (FR-016).
-// v1 = pre-embedding records; v2 = embedding fields present on the nested paper.
-export const CURRENT_SCHEMA_VERSION = 2;
+// v1 = pre-embedding records; v2 = embedding fields present on the nested paper;
+// v3 = paper.embeddingFailure present (null when there is nothing to report).
+export const CURRENT_SCHEMA_VERSION = 3;
 
 // The wrapped superset: the serialized 001 Paper (which itself carries the
 // embedding fields) plus persistence/cross-feature metadata (FR-016/FR-022).
@@ -29,6 +30,12 @@ export interface PersistInput {
 // Embedding preserve-unless-supplied: an incoming null (pending) embedding must
 // NOT clobber a stored non-null vector; only a non-null embedding replaces it
 // (FR-004, SC-007, Clarification 2026-07-08).
+//
+// embeddingFailure is deliberately NOT preserved alongside the vector: it describes
+// the latest attempt, not the stored vector, so the incoming value always wins. That
+// is what lets a failure be recorded against a paper whose older vector is being kept
+// (the vector is retained because it is better than nothing, and the failure records
+// that it is now stale), and what lets a later success clear a stale failure.
 function mergePaper(incoming: Paper, prev: Paper): Paper {
 	if (incoming.embedding === null && prev.embedding !== null) {
 		return {
@@ -87,6 +94,9 @@ export function migrate(raw: unknown): PaperRecord {
 	if (paper.embedding === undefined) paper.embedding = null;
 	if (paper.embeddingModel === undefined) paper.embeddingModel = null;
 	if (paper.embeddingSource === undefined) paper.embeddingSource = null;
+	// v2 -> v3. A record written before failures were recorded has nothing to report,
+	// which is exactly null — not a fabricated failure.
+	if (paper.embeddingFailure === undefined) paper.embeddingFailure = null;
 
 	// A vector from the retired LLM embedding provider is in a space nothing can
 	// reach any more, and 'llm' is no longer a valid embeddingSource — left alone it
