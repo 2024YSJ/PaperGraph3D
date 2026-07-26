@@ -6,7 +6,7 @@ import {
 } from './settings';
 import type { EmbeddingFailure } from './models/paper';
 import type { Subscription } from './models/subscription';
-import { createSubscriptionStore } from './collection/subscriptionStore';
+import { createSubscriptionStore, type SubscriptionStore } from './collection/subscriptionStore';
 import { startScheduler, type SchedulerHandle } from './collection/scheduler';
 import { runSubscriptionCheck } from './collection/pipeline';
 import type { PipelineHooks } from './collection/pipeline';
@@ -21,6 +21,7 @@ import {
 } from './collection/modelAssets';
 import { resetPipeline } from './collection/localTransformer';
 import { describeOutcome, verifyEmbeddingRuntime } from './commands/verifyEmbeddingRuntime';
+import { describeCoverage, measureEmbeddingCoverage } from './commands/embeddingCoverage';
 import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
@@ -69,6 +70,23 @@ function reembedDoneNotice(count: number): string {
 // and what to do, rather than presenting itself as a collection failure. Naming the
 // out-of-memory case specifically matters: restarting Obsidian actually fixes it,
 // whereas nothing the user does in-app will fix a broken install.
+function notReadyNotice(): string {
+	return 'PaperGraph3D: Still loading — try again in a moment.';
+}
+
+function noSubscriptionsNotice(): string {
+	return 'PaperGraph3D: No enabled subscriptions to collect from.';
+}
+
+function collectingNotice(done: number, total: number, label?: string): string {
+	const which = label === undefined ? '' : ` — ${label}`;
+	return `PaperGraph3D: Collecting ${done}/${total}${which}`;
+}
+
+function collectionDoneNotice(checked: number, total: number): string {
+	return `PaperGraph3D: Collection finished (${checked}/${total} subscription(s) checked).`;
+}
+
 function modelNotInstalledNotice(): string {
 	return 'PaperGraph3D: The embedding model is not installed — install it from settings first.';
 }
@@ -99,6 +117,9 @@ export default class PaperGraph3DPlugin extends Plugin {
 	private scheduler?: SchedulerHandle;
 	/** Resolved once the SPECTER2 assets are on disk; undefined keeps papers on the baseline. */
 	private modelLocation?: LocalModelLocation;
+	/** Held so the collect/coverage commands can reach them; 008 owns the real UI. */
+	private subscriptions?: SubscriptionStore;
+	private papers?: PaperStore;
 
 	async onload() {
 		await this.loadSettings();
@@ -144,6 +165,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 
 		// Ensure persisted subscriptions are loaded before the catch-up pass reads them.
 		await store.ready();
+		this.subscriptions = store;
 
 		// Persist collected papers through 003's PaperStore over a vault-backed FileStore
 		// scoped to the user's storage folder (FR-006). Load the on-disk index up front so
@@ -155,6 +177,7 @@ export default class PaperGraph3DPlugin extends Plugin {
 			{ notify: (message) => new Notice(message) },
 		);
 		await paperStore.load();
+		this.papers = paperStore;
 
 		// Converge the persisted corpus on the canonical SPECTER2 space (002 FR-045) —
 		// papers collected before the model was downloaded, or whose collection-time
@@ -214,6 +237,27 @@ export default class PaperGraph3DPlugin extends Plugin {
 			},
 		});
 
+		// Run the configured subscriptions once, now. The scheduler ships with
+		// autoStart: false because no subscription-management UI exists yet, so without
+		// this the only way to collect is from the developer console. This is a trigger,
+		// not subscription management — configuring subscriptions remains 008's.
+		this.addCommand({
+			id: 'collect-papers-now',
+			name: 'Collect papers now',
+			callback: () => {
+				void this.runCollectionNow();
+			},
+		});
+
+		// How much of the corpus the graph can actually place. Reads the store only.
+		this.addCommand({
+			id: 'report-embedding-coverage',
+			name: 'Report embedding coverage',
+			callback: () => {
+				void this.reportEmbeddingCoverage();
+			},
+		});
+
 		scheduler = await startScheduler(this, {
 			// No subscription-management UI exists yet (owned by 008), so a user cannot
 			// intentionally configure a collection plan in-product. Until that ships, perform
@@ -270,6 +314,60 @@ export default class PaperGraph3DPlugin extends Plugin {
 		} catch {
 			return undefined;
 		}
+	}
+
+	/**
+	 * Check every enabled subscription once, sequentially, then report how much of the
+	 * corpus ended up in the graph's embedding space. Sequential because each check is
+	 * already a paced arXiv + Semantic Scholar conversation; running them concurrently
+	 * would only pull rate limits forward.
+	 */
+	private async runCollectionNow(): Promise<void> {
+		const subscriptions = this.subscriptions;
+		const scheduler = this.scheduler;
+		if (subscriptions === undefined || scheduler === undefined) {
+			new Notice(notReadyNotice());
+			return;
+		}
+
+		const enabled = subscriptions.list().filter((subscription) => subscription.enabled);
+		if (enabled.length === 0) {
+			new Notice(noSubscriptionsNotice());
+			return;
+		}
+
+		const progress = new Notice(collectingNotice(0, enabled.length), 0);
+		let checked = 0;
+		try {
+			for (const subscription of enabled) {
+				progress.setMessage(collectingNotice(checked, enabled.length, subscription.label));
+				// One subscription failing is already surfaced by the scheduler's own
+				// onFailure notice; keep going so a single bad query cannot strand the rest.
+				await scheduler.checkNow(subscription);
+				checked += 1;
+			}
+		} finally {
+			progress.hide();
+		}
+
+		new Notice(collectionDoneNotice(checked, enabled.length), 0);
+		await this.reportEmbeddingCoverage();
+	}
+
+	/** Report how much of the persisted corpus sits in the canonical embedding space. */
+	private async reportEmbeddingCoverage(): Promise<void> {
+		const papers = this.papers;
+		if (papers === undefined) {
+			new Notice(notReadyNotice());
+			return;
+		}
+		const report = await measureEmbeddingCoverage(papers);
+		// The counts are worth keeping past the Notice whenever the corpus is not fully
+		// canonical — that is the state someone will want to look at again.
+		if (report.canonical !== report.total) {
+			console.error('[PaperGraph3D] Embedding coverage', report);
+		}
+		new Notice(`PaperGraph3D: ${describeCoverage(report)}`, 0);
 	}
 
 	/**
