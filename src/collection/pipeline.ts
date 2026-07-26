@@ -1,10 +1,11 @@
 import type { PaperCandidate, PaperSourceId } from '../models/paper';
 import type { Subscription } from '../models/subscription';
 import { subscriptionConditions } from '../models/subscription';
+import type { EmbeddingFailure } from '../models/paper';
 import type { EnrichmentOutcome, PipelineHooks, SummaryResult } from './types';
 import type { EmbeddingConfig } from './embeddingUpgrade';
 import { computeBaselineEmbedding } from './embedding';
-import { upgradeEmbedding } from './embeddingUpgrade';
+import { createEmbeddingAttempts, upgradeEmbedding } from './embeddingUpgrade';
 import { enrichFromSemanticScholar } from './enrichment';
 import { parseArxivEntry } from './arxivParser';
 import { promote } from './promotion';
@@ -63,6 +64,12 @@ export async function runCollectionPass(
 	// Phase 1 — single batched enrichment call.
 	const outcomes = await enrich(survivors, getSemanticScholarApiKey());
 
+	// One circuit breaker for the whole pass, so a runtime that has died is not torn
+	// down and rebuilt once per remaining paper. Reported once at the end.
+	const embeddingAttempts = createEmbeddingAttempts();
+	let embeddingFailure: EmbeddingFailure | undefined;
+	let embeddingFailureCount = 0;
+
 	// Phase 2 — sequential per-paper.
 	for (const candidate of survivors) {
 		const outcome = outcomes.get(candidate.sourceId);
@@ -96,21 +103,37 @@ export async function runCollectionPass(
 
 		// FR-045: upgrade the baseline to the canonical SPECTER2 vector at this seam
 		// (read live per paper, so a model downloaded mid-batch takes effect for the
-		// rest of it). Returns undefined while the model is absent or on an inference
-		// failure, and the baseline is kept as pending upgrade — embedding never blocks
-		// persistence (001 FR-021 / 002 FR-046). reembedCorpus converges it later.
+		// rest of it). Embedding never blocks persistence (001 FR-021 / 002 FR-046) —
+		// what changes per outcome is what the paper carries away.
 		const embeddingConfig = getEmbeddingConfig?.();
 		if (embeddingConfig !== undefined) {
 			const upgraded = await upgradeEmbedding(
 				paper.title,
 				paper.abstract,
 				embeddingConfig,
+				embeddingAttempts,
 			);
-			if (upgraded !== undefined) {
-				paper.embedding = upgraded.embedding;
-				paper.embeddingModel = upgraded.embeddingModel;
-				paper.embeddingSource = upgraded.embeddingSource;
+			if (upgraded.status === 'ok') {
+				paper.embedding = upgraded.result.embedding;
+				paper.embeddingModel = upgraded.result.embeddingModel;
+				paper.embeddingSource = upgraded.result.embeddingSource;
+			} else if (upgraded.status === 'failed') {
+				// The model IS installed and inference broke. Storing the lexical
+				// baseline here would be a lie by omission: it is a different space
+				// from the canonical one, so the graph cannot project it against
+				// anything, yet a stored vector reads as "embedded" to every consumer
+				// and to reembedCorpus. Leave the embedding pending and record why, so
+				// the paper is visibly unfinished and a later pass genuinely retries it.
+				paper.embedding = null;
+				paper.embeddingModel = null;
+				paper.embeddingSource = null;
+				paper.embeddingFailure = upgraded.failure;
+				embeddingFailure = upgraded.failure;
+				embeddingFailureCount += 1;
 			}
+			// 'unavailable' — the model is simply not installed yet. That is the
+			// expected pre-install state, not a fault: keep the baseline (FR-044) and
+			// let reembedCorpus converge the paper once the user installs the model.
 		}
 
 		let summary: SummaryResult | undefined;
@@ -139,6 +162,14 @@ export async function runCollectionPass(
 		}
 
 		await yieldToEventLoop();
+	}
+
+	// Report the embedding runtime's failure once, with the damage. Collection itself
+	// succeeded — these papers are saved and readable — so this is a notice, not an
+	// error, but it has to be said: without it the only symptom is a graph that quietly
+	// stops placing anything collected after the runtime died.
+	if (embeddingFailure !== undefined) {
+		hooks.onEmbeddingFailed?.(embeddingFailure, embeddingFailureCount);
 	}
 }
 

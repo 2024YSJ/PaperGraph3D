@@ -90,7 +90,7 @@ function paper(over: Partial<Paper> & { sourceId: PaperSourceId }): Paper {
 	return {
 		title: 'OLD TITLE', publicationYear: YEAR, authors: ['Alice'], citationCount: 0,
 		citationsKnown: true, abstract: 'OLD ABSTRACT', sourceId: over.sourceId, references: [],
-		embedding: null, embeddingModel: null, embeddingSource: null, ...over,
+		embedding: null, embeddingModel: null, embeddingSource: null, embeddingFailure: null, ...over,
 	};
 }
 function newStore(): { store: PaperStore; fs: InMemoryFileStore } {
