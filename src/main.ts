@@ -83,6 +83,9 @@ export default class PaperGraph3DPlugin extends Plugin {
 	subscriptionStore?: SubscriptionStore;
 	/** The 003 paper store, read by the 3D graph view (006 → 007). */
 	private paperStore?: PaperStore;
+	/** Running count of papers persisted, so a manual "Collect now" can report how many
+	 * new papers a check saved (the collection pipeline itself returns no count). */
+	private persistedCount = 0;
 	/** Resolved once the SPECTER2 assets are on disk; undefined keeps papers on the baseline. */
 	private modelLocation?: LocalModelLocation;
 
@@ -197,12 +200,14 @@ export default class PaperGraph3DPlugin extends Plugin {
 				notifyCredentialProblem: (message) => new Notice(message),
 				notifyRateLimited: (message) => new Notice(message),
 			}),
-			persist: (paper, summary) =>
-				paperStore.upsert({
+			persist: (paper, summary) => {
+				this.persistedCount += 1;
+				return paperStore.upsert({
 					paper,
 					summary: summary?.summary,
 					futureDirections: summary?.futureDirections,
-				}),
+				});
+			},
 			alreadyPersisted: async (sourceId) => paperStore.has(sourceId),
 			onEmbeddingFailed: (failure, affected) => {
 				new Notice(embeddingFailedNotice(failure, affected), 0);
@@ -257,10 +262,14 @@ export default class PaperGraph3DPlugin extends Plugin {
 			return;
 		}
 		new Notice(`PaperGraph3D: Checking "${subscription.label}" for new papers…`);
+		const before = this.persistedCount;
 		try {
 			await this.scheduler.checkNow(subscription);
+			const saved = this.persistedCount - before;
 			new Notice(
-				`PaperGraph3D: Finished checking "${subscription.label}". New papers (if any) are in ${this.settings.storageLocation}/.`,
+				saved > 0
+					? `PaperGraph3D: "${subscription.label}" — saved ${saved} new paper(s) to ${this.settings.storageLocation}/.`
+					: `PaperGraph3D: "${subscription.label}" — no new papers in this window. (Try Backfill for older papers.)`,
 			);
 		} catch (error) {
 			new Notice(
