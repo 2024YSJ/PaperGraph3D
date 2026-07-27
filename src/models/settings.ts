@@ -35,6 +35,16 @@ export interface PluginSettings {
 	  // 004-owned (FR-006). Plaintext credential for the summarization provider
   // (constitution Principle IV — disclosed in settings UI copy).
   summarizationCredential?: string;
+	  // 008/002-owned. Global automatic-collection switch (the scheduler's `autoStart`).
+  // Absent/false means NO automatic collection — no catch-up-on-load, no recurring
+  // tick — so the plugin never touches the network on startup/timer without a
+  // deliberate opt-in (constitution Principle IV). Manual checks still work.
+  autoCollectionEnabled?: boolean;
+	  // 007/008-owned (007 FR-021). The default render window: how many trailing years of
+  // papers the graph loads by default. 0 means "all papers"; absent means the default
+  // (1 year). Bounds load/projection cost so a session never materializes the whole
+  // corpus.
+  renderWindowYears?: number;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
@@ -83,6 +93,12 @@ export function isValidPluginSettings(data: unknown): data is PluginSettings {
 	      (candidate.summarizationProvider === undefined ||
 		         typeof candidate.summarizationProvider === 'string') &&
 	      (candidate.summarizationCredential === undefined ||
-		         typeof candidate.summarizationCredential === 'string')
+		         typeof candidate.summarizationCredential === 'string') &&
+	      (candidate.autoCollectionEnabled === undefined ||
+		         typeof candidate.autoCollectionEnabled === 'boolean') &&
+	      (candidate.renderWindowYears === undefined ||
+		         (typeof candidate.renderWindowYears === 'number' &&
+			            Number.isFinite(candidate.renderWindowYears) &&
+			            candidate.renderWindowYears >= 0))
 	    );
 }

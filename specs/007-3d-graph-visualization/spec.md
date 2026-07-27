@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "007의 논문 node들을 3d로 시각화 하는 기능" — visualize the paper nodes (and their citation relationships) produced by graph-data conversion (006) in three-dimensional space, and let the user explore and interact with them. Publication year is fixed to one axis so same-year papers share a plane; the user can rotate/zoom/pan, hover for a summary + citation panel, spot uncited recent papers, click a node to open its note, right-click for six actions, narrow a year range, and search-and-jump to a paper. Interactions that change or open a paper act through the same JSON-record / Markdown-note pairing the rest of the plugin uses. (Graduates the `specs-input/007-3d-graph-visualization` draft.)
+**Input**: User description: "007의 논문 node들을 3d로 시각화 하는 기능" — visualize the paper nodes (and their citation relationships) produced by graph-data conversion (006) in three-dimensional space, and let the user explore and interact with them. Publication year is fixed to one axis so same-year papers share a plane; the user can rotate/zoom/pan, hover for a summary + citation panel, spot uncited recent papers, click a node to open its note, right-click for five actions, narrow a year range, and search-and-jump to a paper. Interactions that open or refresh a paper act through the same JSON-record / Markdown-note pairing the rest of the plugin uses. (Graduates the `specs-input/007-3d-graph-visualization` draft.)
 
 ## Clarifications
 
@@ -57,20 +57,19 @@ As a user, I want to hover a node for its summary and citation info, click it to
 
 ### User Story 3 - Right-click actions on a node (Priority: P2)
 
-As a user, I want to right-click a node and immediately run one of six actions: open note, refresh this paper, copy source link, copy title, toggle read/unread, and remove from graph.
+As a user, I want to right-click a node and immediately run one of five actions: open note, refresh this paper, copy source link, copy title, and remove from graph.
 
 **Why this priority**: Direct manipulation from the graph is what makes it a control surface, not just a picture.
 
-**Independent Test**: Right-click a node and confirm all six actions are offered and each produces an immediately observable result, with refresh delegating to 005 and a deleting remove delegating to 003.
+**Independent Test**: Right-click a node and confirm all five actions are offered and each produces an immediately observable result, with refresh delegating to 005.
 
 **Acceptance Scenarios**:
 
-1. **Given** a node, **When** the user right-clicks it, **Then** a menu offers exactly six actions: open note, refresh this paper, copy source link, copy title, toggle read/unread, remove from graph.
+1. **Given** a node, **When** the user right-clicks it, **Then** a menu offers exactly five actions: open note, refresh this paper, copy source link, copy title, remove from graph.
 2. **Given** the menu, **When** the user picks "open note", **Then** the paper's Markdown note opens.
 3. **Given** the menu, **When** the user picks "refresh this paper", **Then** a refresh runs via 005 and the updated citation data is reflected.
 4. **Given** the menu, **When** the user picks "copy source link" or "copy title", **Then** the corresponding value is placed on the clipboard.
-5. **Given** the menu, **When** the user toggles read/unread, **Then** the node's read state changes and is visibly reflected.
-6. **Given** the menu, **When** the user picks "remove from graph", **Then** the node is removed from the current view; if the action is the clearly-labeled delete variant, it is confirmed first and then deletes the record + note pairing via 003.
+5. **Given** the menu, **When** the user picks "remove from graph", **Then** the node is hidden from the current view (session-only; it does not delete the underlying record or note).
 
 ---
 
@@ -93,11 +92,10 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 ### Edge Cases
 
 - If the graph has no papers at all, a message is shown instead of a blank screen.
-- "Remove from graph" must make unmistakably clear whether it only hides the node or also deletes the underlying record/note; deletion is irreversible, is separately labeled, and is confirmed before it runs.
+- "Remove from graph" hides the node from the current view only (session-only); it never deletes the underlying record/note. (Deletion, if ever wanted, is a separate concern owned by 003, not surfaced here.)
 - Exploration controls must remain responsive even with a very large number of accumulated papers (see FR-016–FR-021).
 - The user must be informed when a search returns no results.
 - If a hovered paper has no summary (feature 004 off or fell back to abstract), the panel shows the abstract / citation info it does have rather than an empty panel.
-- Read/unread is a display state; where it is persisted (an extension field on the record per 001 FR-016) must keep the JSON / Markdown pairing consistent through 003.
 - A node whose 006 position is a deterministic fallback (embedding pending / not yet in the canonical SPECTER2 space) still renders at its assigned year plane; the view MUST NOT fail or leave it unplaced.
 
 ## Requirements *(mandatory)*
@@ -110,12 +108,12 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-004**: Hovering a node MUST bring up a panel containing that paper's summary and citation information (falling back to the abstract when no summary exists).
 - **FR-005**: Papers that nobody has cited yet MUST be visually distinguished from other nodes, using the shared uncited flag carried on each node by 006 (not an in-graph inbound-edge count).
 - **FR-006**: Clicking a node MUST open that paper's Markdown note.
-- **FR-007**: Right-clicking a node MUST offer exactly six actions: open note, refresh this paper, copy source link, copy title, toggle read/unread, remove from graph. Each MUST produce an immediately observable result.
-- **FR-008**: "Refresh this paper" MUST run through the manual-refresh feature (005); "remove from graph", when it deletes, MUST run through the coordinated record + note delete in 003.
+- **FR-007**: Right-clicking a node MUST offer exactly five actions: open note, refresh this paper, copy source link, copy title, remove from graph. Each MUST produce an immediately observable result. (An earlier draft included a sixth "toggle read/unread" action; read/unread is dropped — it drove no visual encoding and added a storage/state surface with no user payoff.)
+- **FR-008**: "Refresh this paper" MUST run through the manual-refresh feature (005). "Remove from graph" hides the node from the current view only and performs no deletion (FR-012).
 - **FR-009**: The user MUST be able to narrow a year range so that out-of-range papers are completely hidden from the screen.
 - **FR-010**: The user MUST be able to search for a specific paper and have the view move to it; a search with no results MUST inform the user.
 - **FR-011**: When there are no papers to show, a message MUST be shown instead of a blank screen.
-- **FR-012**: "Remove from graph" MUST make clear whether it hides the node or deletes the underlying data; the deleting variant MUST be separately labeled and confirmed before running, because deletion is irreversible.
+- **FR-012**: "Remove from graph" MUST only hide the node from the current view (session-only) and MUST NOT delete the underlying record or note. No deletion action is surfaced from the graph.
 - **FR-013**: This feature MUST consume graph data from 006 and MUST NOT parse vault files or contact external providers directly.
 - **FR-014**: Node x,y placement MUST use the content-similarity projection provided by 006; the plugin MUST NOT re-derive positions from vault files itself (consistent with FR-013). Publication year remains fixed to the separate axis (FR-001). When a projection refit (006) changes positions, the view SHOULD animate the transition rather than snapping.
 - **FR-015**: The plugin is desktop-only (`manifest.json` `isDesktopOnly: true`). The 3D rendering, on-device embedding, and projection MAY use Node/Electron/native capabilities accordingly, consistent with the constitution's platform-compliance rule for an intentional desktop-only plugin.
@@ -124,13 +122,14 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **FR-018** *(edge level-of-detail)*: Citation edges (FR-003) MUST scale via level-of-detail / culling — e.g. drawn only for in-view or focused / expanded nodes — so edge rendering does not dominate cost at large node counts.
 - **FR-019** *(sub-linear picking)*: Hover (FR-004) and click (FR-006) hit-testing MUST use a spatial index or GPU picking, not a per-frame linear scan over all nodes, so interaction latency stays roughly flat as the node count grows.
 - **FR-020** *(default-scoped view)*: The default view MUST NOT render and interact with the entire accumulated corpus at once. At minimum the year-range filter (FR-009) scopes what is shown, and a persisted render-window setting (FR-021) provides the default scope; the view SHOULD additionally offer subscription and/or similarity-cluster scoping. Because the corpus accumulates without bound (a broad subscription can add ~100 papers/day), this in-view scoping — not raw draw performance — is the primary defense against visual clutter and interaction cost. (Bounding *total* accumulation via a retention/cap policy is out of scope for this feature; deferred to 002/008.)
-- **FR-021** *(persisted render window)*: The settings screen (008) MUST expose a persisted **render window** — a publication-date range or a rolling window (e.g. "the last N years") — that bounds which papers the graph loads and renders **by default**, so a session never starts by materializing the whole corpus. It is stored as a `GraphDisplayOptions` extension field on settings (001 FR-016) and composes with the interactive year-range filter (FR-009), which may narrow further within it. To be a genuine cost control rather than a mere display filter, out-of-window papers SHOULD also be excluded from projection / load (006), so a large historical corpus imposes no rendering **or** projection cost while the window is narrow. An "all papers" setting MUST remain available for users who want the full graph.
+- **FR-021** *(persisted render window)*: The settings screen (008) MUST expose a persisted **render window** — a rolling window that bounds which papers the graph loads and renders **by default**, so a session never starts by materializing the whole corpus. The default is **the last 1 year**. It is stored as a `GraphDisplayOptions` extension field on settings (001 FR-016) and composes with the interactive year-range filter (FR-009), which may narrow further within it. To be a genuine cost control rather than a mere display filter, out-of-window papers SHOULD also be excluded from projection / load (006), so a large historical corpus imposes no rendering **or** projection cost while the window is narrow. An "all papers" setting MUST remain available for users who want the full graph.
 
 ### Key Entities
 
 - **Graph View**: The 3D rendering of nodes and connections, with camera controls, hover panel, year-range filter, and search. A dedicated workspace view opened on demand by the user (via 008's command / ribbon wiring), not on a timer.
-- **Node (displayed)**: A rendered paper positioned by publication year (depth axis) and by 006's x,y projection (in-plane), styled to reflect citation and read/unread status; backed by a paper's record via 006's `GraphNode`.
-- **Right-Click Action Set**: The fixed set of six per-node actions, each delegating any data change to 003/005 rather than mutating state directly.
+- **Node (displayed)**: A rendered paper positioned by publication year (depth axis) and by 006's x,y projection (in-plane), styled to reflect embedding and citation status (the fixed color rule below); backed by a paper's record via 006's `GraphNode`.
+- **Right-Click Action Set**: The fixed set of five per-node actions, each delegating any data change to 005 (refresh) rather than mutating state directly; "remove from graph" is a session-only hide.
+- **Node color rule (fixed)**: Node color is a fixed encoding, not a user-selectable scheme — red when the node has no canonical SPECTER2 embedding (006 fallback position), otherwise orange when uncited, otherwise blue. There is no color-scheme setting.
 
 ## Success Criteria *(mandatory)*
 
@@ -139,19 +138,19 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 - **SC-001**: Paper nodes from different years always sit on different planes (depths).
 - **SC-002**: Narrowing the year range makes out-of-range papers disappear from the screen entirely.
 - **SC-003**: A paper found via search causes the view to move to it so it is immediately visible; a no-result search informs the user.
-- **SC-004**: Each right-click action produces an immediately observable result (note opens, clipboard copied, read state toggles, node disappears, refresh reflected).
+- **SC-004**: Each of the five right-click actions produces an immediately observable result (note opens, clipboard copied, node disappears from view, refresh reflected).
 - **SC-005**: With zero papers, a message is shown rather than a blank screen.
-- **SC-006**: Any deleting "remove" action is confirmed before it irreversibly deletes the record + note pairing.
+- **SC-006**: "Remove from graph" only hides the node from the current view and never deletes the record or note.
 - **SC-007**: Node x,y reflects content similarity (similar papers cluster), while every year still maps to a distinct plane on the fixed axis (SC-001 preserved).
 - **SC-008**: Rotate/zoom/pan sustains an interactive frame rate (~50–60 fps) at the OQ-5 target node count (~50k in view) on a typical desktop GPU, and interaction latency does not visibly worsen as the corpus grows — verifying FR-016–FR-020.
 
 ## Assumptions
 
 - Graph data (nodes + connections + each node's x,y position + basis model) is supplied by 006's `GraphData`; this feature does not read stored files itself.
-- Read/unread state is stored as an extension field on the paper record (001 FR-016) and kept consistent across the JSON / Markdown pairing by 003.
+- Node color is a fixed rule (red = no SPECTER2 embedding, orange = uncited, blue = otherwise); there is no user-selectable color scheme and no `colorScheme` / `layout` setting (both are dropped from `GraphDisplayOptions`).
 - The uncited visual distinction reads the shared `isUncited` rule surfaced by 006 (`citationsKnown === true && citationCount === 0`). Its accuracy depends on collection (002) having enriched the paper's citation data; an un-enriched paper (`citationsKnown === false`) is not marked uncited until a manual refresh (005) or background enrichment updates it.
 - The 3D rendering technology is an implementation choice fixed at planning time, constrained by the desktop-only decision and the constitution's platform-compliance rules; this spec fixes behavior, not the rendering library.
-- The render window (FR-021) is a `GraphDisplayOptions` extension field on the plugin settings (001 FR-016), surfaced by the 008 settings screen and read by 007 (and, for the projection/load cost saving, honored by 006). Default value and whether it is a fixed range vs. a rolling "last N years" are settings/UX decisions owned by 001/008.
+- The render window (FR-021) is a `GraphDisplayOptions` extension field on the plugin settings (001 FR-016), surfaced by the 008 settings screen and read by 007 (and, for the projection/load cost saving, honored by 006). It is a rolling window defaulting to the last 1 year, with an "all papers" option (decided 2026-07-26).
 - The Graph View is opened, and its command/ribbon entry registered, by the plugin-assembly feature (008); this feature owns the view's contents and behavior, not the host-chrome wiring that launches it.
 
 ## Open Questions
@@ -159,18 +158,17 @@ As a user, I want to narrow the graph to a specific year range and to search a p
 *Deferred to `/speckit-clarify` and `/speckit-plan` — recorded so refinement and planning address them.*
 
 - **OQ-1 — Intra-year-plane layout. [RESOLVED 2026-07-07]** x,y = content-similarity projection from 006 (deterministic PCA with sign-canonicalization; UMAP deferred to future work per 006 OQ-4).
-- **OQ-2 — `colorScheme` meaning.** What does the graph-display color scheme (e.g. `byPublicationYear`) actually encode (year, read state, citation count, uncited)? Coordinate with 001's `GraphDisplayOptions` and 008.
+- **OQ-2 — `colorScheme` meaning. [RESOLVED 2026-07-26 → no color scheme]** Node color is a FIXED rule (red = no SPECTER2 embedding, orange = uncited, blue = otherwise), not user-selectable. The `colorScheme` (and `layout`) fields are dropped from `GraphDisplayOptions`; the settings screen has no color/layout control.
 - **OQ-3 — "Most recent" definition** for the uncited highlight — same question as 004 OQ-1. Does the uncited distinction apply to all uncited papers or only "recent" ones, and how is "recent" bounded?
-- **OQ-4 — Hide persistence.** When "remove from graph" only hides a node, is that hidden state persisted across sessions or session-only?
+- **OQ-4 — Hide persistence. [RESOLVED 2026-07-26 → session-only]** "Remove from graph" hides a node for the current session only; the hidden state is not persisted across sessions.
 - **OQ-5 — Concrete scale/responsiveness targets. [RESOLVED 2026-07-13]** "Large" is ~50,000 nodes in view; the responsiveness budget is an interactive ~50–60 fps for rotate/zoom/pan on a typical desktop GPU (SC-008). Met by two independent levers: (1) rendering/interaction technique (FR-016–FR-019) and (2) in-view scoping (FR-020/FR-021). Bounding total corpus accumulation is deferred to 002/008.
-- **OQ-6 — Read/unread default and storage shape** — the default state and the extension-field representation (coordinate with 001/003).
+- **OQ-6 — Read/unread. [RESOLVED 2026-07-26 → dropped]** Read/unread is removed entirely — no toggle, no stored read state driving the view. It drove no visual encoding (color is the fixed rule above) and added state with no user payoff.
 - **OQ-7 — Mobile viability and `isDesktopOnly`. [RESOLVED 2026-07-07 → desktop-only]** Committed to desktop-only; `manifest.json` `isDesktopOnly` is `true`, recorded here and in the constitution's platform-compliance / mobile notes.
 
 ## Dependencies
 
 - **006 (graph-data conversion)**: supplies `GraphData` — nodes (id, title, publication year, citation count/known flag, uncited flag, computed x,y position, position source), directional connections, and the projection basis model. Read-only consumer; 007 never re-derives positions or parses records.
-- **003 (paper-note persistence)**: the coordinated record + note operations that a deleting "remove" and read/unread toggle delegate to. 007 originates intent; 003 owns the write.
-- **005 (manual paper refresh)**: the "refresh this paper" action delegates the external re-fetch here.
+- **005 (manual paper refresh)**: the "refresh this paper" action delegates the external re-fetch here. (007 no longer writes through 003 — "remove from graph" is a session-only hide and read/unread is dropped.)
 - **004 (paper summarization)**: supplies the summary shown in the hover panel (with abstract fallback).
 - **008 (plugin assembly)**: registers the command / ribbon that opens the Graph View and owns the settings screen exposing the render window (FR-021). 007 owns the view's contents; 008 owns the host-chrome wiring that launches it.
 

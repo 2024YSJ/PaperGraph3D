@@ -6,7 +6,7 @@ import {
 } from './settings';
 import type { EmbeddingFailure } from './models/paper';
 import type { Subscription } from './models/subscription';
-import { createSubscriptionStore } from './collection/subscriptionStore';
+import { createSubscriptionStore, type SubscriptionStore } from './collection/subscriptionStore';
 import { startScheduler, type SchedulerHandle } from './collection/scheduler';
 import { runSubscriptionCheck } from './collection/pipeline';
 import type { PipelineHooks } from './collection/pipeline';
@@ -24,6 +24,9 @@ import { createObsidianFileStore } from './persistence/filestore-obsidian';
 import { PaperStore } from './persistence/store';
 import { createSummarizeHook } from './services/summarization/hook';
 import { resolveSummarizationProvider } from './services/summarization/providers/registry';
+import { convertToGraphData } from './graph/convert';
+import { GraphView, GRAPH_VIEW_TYPE, type GraphViewDeps } from './graph-view/GraphView';
+import { createInMemoryBasisCache } from './graph-view/basisCache';
 
 // User-facing copy is English-only (per project decision).
 function subscriptionFailureNotice(
@@ -76,6 +79,10 @@ function embeddingFailedNotice(failure: EmbeddingFailure, affected: number): str
 export default class PaperGraph3DPlugin extends Plugin {
 	settings!: PluginSettings;
 	private scheduler?: SchedulerHandle;
+	/** The 002 subscription store, exposed so the 008 settings tab can manage subscriptions. */
+	subscriptionStore?: SubscriptionStore;
+	/** The 003 paper store, read by the 3D graph view (006 → 007). */
+	private paperStore?: PaperStore;
 	/** Resolved once the SPECTER2 assets are on disk; undefined keeps papers on the baseline. */
 	private modelLocation?: LocalModelLocation;
 
@@ -83,6 +90,23 @@ export default class PaperGraph3DPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.addSettingTab(new PaperGraph3DSettingTab(this.app, this));
+
+		// The 3D graph view (006 → 007), opened on demand.
+		this.registerView(GRAPH_VIEW_TYPE, (leaf) => new GraphView(leaf, this.graphDeps()));
+
+		// Two side-ribbon buttons: one opens the controls (settings), one opens the 3D graph.
+		this.addRibbonIcon('sliders-horizontal', 'PaperGraph3D controls', () => this.openControls());
+		this.addRibbonIcon('git-fork', 'Open paper graph (3D)', () => void this.activateGraphView());
+		this.addCommand({
+			id: 'open-controls',
+			name: 'Open controls (settings)',
+			callback: () => this.openControls(),
+		});
+		this.addCommand({
+			id: 'open-3d-graph',
+			name: 'Open 3D paper graph',
+			callback: () => void this.activateGraphView(),
+		});
 
 		// Pick up assets downloaded in a previous session. Never downloads — that
 		// requires an explicit install from the settings tab (constitution Principle IV).
@@ -123,6 +147,8 @@ export default class PaperGraph3DPlugin extends Plugin {
 
 		// Ensure persisted subscriptions are loaded before the catch-up pass reads them.
 		await store.ready();
+		// Expose it so the settings tab (008) can list/add/remove subscriptions.
+		this.subscriptionStore = store;
 
 		// Persist collected papers through 003's PaperStore over a vault-backed FileStore
 		// scoped to the user's storage folder (FR-006). Load the on-disk index up front so
@@ -134,6 +160,8 @@ export default class PaperGraph3DPlugin extends Plugin {
 			{ notify: (message) => new Notice(message) },
 		);
 		await paperStore.load();
+		// Expose it so the 3D graph view (006 → 007) can read the corpus.
+		this.paperStore = paperStore;
 
 		// Converge the persisted corpus on the canonical SPECTER2 space (002 FR-045) —
 		// papers collected before the model was downloaded, or whose collection-time
@@ -182,12 +210,12 @@ export default class PaperGraph3DPlugin extends Plugin {
 		};
 
 		scheduler = await startScheduler(this, {
-			// No subscription-management UI exists yet (owned by 008), so a user cannot
-			// intentionally configure a collection plan in-product. Until that ships, perform
-			// NO automatic collection — the plugin must not query arXiv/Semantic Scholar on
-			// startup or on a timer without a deliberate user action (constitution Principle IV;
-			// avoids re-collecting a stray/persisted subscription every launch). 008 removes this.
-			autoStart: false,
+			// 008: automatic collection (catch-up-on-load + the 15-min tick) is gated by the
+			// user's global "automatic collection" toggle, read live so a settings change takes
+			// effect on the next load. Defaults to off (absent) so the plugin never queries
+			// arXiv/Semantic Scholar on startup or a timer without a deliberate opt-in
+			// (constitution Principle IV). Manual checks (checkNow on register) still work.
+			autoStart: this.settings.autoCollectionEnabled ?? false,
 			getSubscriptions: () => store.list(),
 			onSubscriptionChecked: (subscription, checkedThrough, windowFrom) =>
 				store.recordChecked(subscription, checkedThrough, windowFrom),
@@ -218,6 +246,87 @@ export default class PaperGraph3DPlugin extends Plugin {
 	onunload() {
 		// The scheduler's recurring tick is registered via registerInterval, so Obsidian
 		// clears it automatically on unload — no explicit stop is needed (Principle II).
+	}
+
+	// Manually check one subscription for new papers right now (settings "Collect now").
+	// Reports start/finish via Notice so the user can see collection actually run; the
+	// scheduler surfaces any provider failure through its own onFailure Notice.
+	async collectNow(subscription: Subscription): Promise<void> {
+		if (this.scheduler === undefined) {
+			new Notice('PaperGraph3D is still loading — try again in a moment.');
+			return;
+		}
+		new Notice(`PaperGraph3D: Checking "${subscription.label}" for new papers…`);
+		try {
+			await this.scheduler.checkNow(subscription);
+			new Notice(
+				`PaperGraph3D: Finished checking "${subscription.label}". New papers (if any) are in ${this.settings.storageLocation}/.`,
+			);
+		} catch (error) {
+			new Notice(
+				`PaperGraph3D: Check failed for "${subscription.label}": ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+
+	// Ribbon button 1: open the plugin's settings tab (the four-section controls).
+	private openControls(): void {
+		const setting = (
+			this.app as unknown as { setting?: { open: () => void; openTabById: (id: string) => void } }
+		).setting;
+		setting?.open();
+		setting?.openTabById(this.manifest.id);
+	}
+
+	// Ribbon button 2: open (or reveal) the 3D graph view. Re-created each time so it
+	// reflects the current corpus.
+	async activateGraphView(): Promise<void> {
+		const { workspace } = this.app;
+		// Reuse an already-open graph leaf; otherwise open a new one. Do NOT detach first —
+		// detaching the last leaf can leave the workspace with no tab group, which makes
+		// getLeaf('tab') throw "No tab group found".
+		let leaf = workspace.getLeavesOfType(GRAPH_VIEW_TYPE)[0];
+		if (leaf === undefined) {
+			try {
+				leaf = workspace.getLeaf('tab');
+			} catch {
+				// Fall back to reusing/creating a leaf when there is no tab group to add to.
+				leaf = workspace.getLeaf(false);
+			}
+		}
+		await leaf.setViewState({ type: GRAPH_VIEW_TYPE, active: true });
+		void workspace.revealLeaf(leaf);
+	}
+
+	private graphDeps(): GraphViewDeps {
+		return {
+			// 006: read the persisted corpus → nodes + connections + PCA layout.
+			getGraphData: async () => {
+				const store = this.paperStore;
+				if (store === undefined) {
+					throw new Error('The paper store is not ready yet.');
+				}
+				return convertToGraphData(store, createInMemoryBasisCache());
+			},
+			openNote: (id) => this.openNote(id),
+			refreshPaper: (id) => new Notice(`Refresh for ${id} is not wired yet (feature 005).`),
+			toggleRead: () => new Notice('Read/unread was removed.'),
+			notify: (message) => new Notice(message),
+		};
+	}
+
+	private openNote(id: string): void {
+		const localId = id.slice(id.indexOf(':') + 1);
+		const needle = `(${localId})`;
+		const prefix = `${this.settings.storageLocation}/`;
+		const file = this.app.vault
+			.getMarkdownFiles()
+			.find((f) => f.path.startsWith(prefix) && f.basename.includes(needle));
+		if (file !== undefined) {
+			void this.app.workspace.getLeaf(false).openFile(file);
+		} else {
+			new Notice(`Note for ${id} not found in ${this.settings.storageLocation}.`);
+		}
 	}
 
 	private assetPaths() {
