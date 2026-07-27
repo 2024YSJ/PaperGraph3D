@@ -16,7 +16,7 @@ import type { GraphData } from '../graph/types';
 // its RMS radius hits `xyRadius`, spreading nodes to a consistent, comfortable extent
 // regardless of raw magnitude. dayZScale sets depth spacing per DAY. Both live here in
 // 007 because visual mapping is 007's job (006 owns only the layout *data*).
-export const DEFAULT_XY_RADIUS = 130;
+export const DEFAULT_XY_RADIUS = 260;
 // Depth axis is DAY-granular: each calendar day advances z by this much. Papers
 // published on the same day share a plane; different days sit on different planes.
 export const DEFAULT_DAY_Z_SCALE = 6;
